@@ -1,0 +1,18 @@
+{
+  "name": "hello-world-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "migrate": "wrangler d1 migrations apply hello_world",
+    "db:id": "node scripts/get-db-id.mjs",
+    "db:set-id": "node scripts/set-db-id.mjs",
+    "db:github-env": "node scripts/get-db-id.mjs --github-env",
+    "db:apply-env": "node scripts/set-db-id.mjs --env"
+  },
+  "devDependencies": {
+    "wrangler": "^3.28.2"
+  }
+}
