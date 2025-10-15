@@ -16,22 +16,36 @@ function escapeHtml(value) {
 
 async function readGreetingFromDatabase(database) {
   if (!database || typeof database.prepare !== "function") {
+    console.error("HELLO_WORLD_DB binding is missing or invalid:", {
+      hasDatabase: Boolean(database),
+      type: database ? typeof database : "undefined",
+    });
     throw new Error("The HELLO_WORLD_DB binding is not configured.");
   }
+
+  console.debug("Preparing to read greeting from D1 database");
 
   const row = await database
     .prepare("SELECT message FROM greetings ORDER BY id LIMIT 1")
     .first();
 
   if (!row?.message) {
+    console.warn("Query for greeting returned no rows.");
     throw new Error("No greeting rows were returned from the database.");
   }
 
+  console.debug("Greeting row retrieved from database:", row);
   return row.message;
 }
 
 function resolveFallbackGreeting(env, reason) {
   const fallbackGreeting = env?.DEFAULT_GREETING?.trim() || DEFAULT_GREETING;
+
+  if (reason) {
+    console.warn("Falling back to built-in greeting due to:", reason);
+  } else {
+    console.info("HELLO_WORLD_DB binding not present, using fallback greeting.");
+  }
 
   return {
     message: fallbackGreeting,
@@ -42,10 +56,12 @@ function resolveFallbackGreeting(env, reason) {
 
 async function resolveGreeting(env) {
   if (!env?.HELLO_WORLD_DB) {
+    console.warn("HELLO_WORLD_DB binding not found on env; falling back to default greeting.");
     return resolveFallbackGreeting(env);
   }
 
   try {
+    console.debug("Attempting to read greeting from HELLO_WORLD_DB binding.");
     const message = await readGreetingFromDatabase(env.HELLO_WORLD_DB);
     return { message, note: DATABASE_NOTE, warning: null };
   } catch (error) {
