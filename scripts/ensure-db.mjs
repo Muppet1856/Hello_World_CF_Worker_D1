@@ -1,7 +1,7 @@
 import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-import { fetchDatabaseId } from './get-db-id.mjs';
+import { extractDatabaseId, fetchDatabaseId } from './get-db-id.mjs';
 import { writeDatabaseIdToConfig } from './set-db-id.mjs';
 
 const DEFAULT_DATABASE_NAME = 'hello_world';
@@ -50,10 +50,19 @@ function createDatabase(databaseName) {
     throw new Error(`Unexpected response from \"${command}\": ${text.trim()}`);
   }
 
-  const databaseId = response?.uuid ?? response?.database?.uuid;
+  let databaseId = extractDatabaseId(response);
 
   if (!databaseId) {
-    throw new Error(`Could not determine the database id from the create response: ${text.trim()}`);
+    console.warn('Wrangler did not return a database id directly after creation. Falling back to querying the API...');
+
+    try {
+      databaseId = fetchDatabaseId(databaseName);
+    } catch (lookupError) {
+      const message = lookupError.stderr?.toString()?.trim() ?? lookupError.message;
+      throw new Error(
+        `Created the database but could not determine its id. Wrangler response: ${text.trim()}\nLookup error: ${message}`,
+      );
+    }
   }
 
   console.log(`Created D1 database \"${databaseName}\" with id ${databaseId}.`);
