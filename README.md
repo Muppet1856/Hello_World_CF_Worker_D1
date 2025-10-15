@@ -56,9 +56,11 @@ scripts in this repository expect the same variable.
    ```
 
 2. (Optional) Ensure the D1 database exists and that its id is recorded in
-   `wrangler.toml`:
+   `wrangler.toml`. You can do this explicitly or rely on the standard build
+   command, which runs the same helper behind the scenes:
 
    ```bash
+   npm run build
    npm run db:ensure
    ```
 
