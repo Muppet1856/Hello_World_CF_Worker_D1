@@ -2,11 +2,41 @@ import { appendFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
+export function extractDatabaseId(response) {
+  if (!response || typeof response !== 'object') {
+    return null;
+  }
+
+  if (typeof response.uuid === 'string' && response.uuid) {
+    return response.uuid;
+  }
+
+  if (response.database && typeof response.database.uuid === 'string') {
+    return response.database.uuid;
+  }
+
+  if (response.result) {
+    return extractDatabaseId(response.result);
+  }
+
+  if (Array.isArray(response)) {
+    for (const entry of response) {
+      const id = extractDatabaseId(entry);
+
+      if (id) {
+        return id;
+      }
+    }
+  }
+
+  return null;
+}
+
 export function fetchDatabaseId(databaseName = 'hello_world') {
   const command = `wrangler d1 info ${databaseName} --json`;
   const stdout = execSync(command, { stdio: ['ignore', 'pipe', 'pipe'] });
   const info = JSON.parse(stdout.toString());
-  const databaseId = info?.uuid;
+  const databaseId = extractDatabaseId(info);
 
   if (!databaseId) {
     throw new Error(`Could not find a database id in the response for "${databaseName}".`);
