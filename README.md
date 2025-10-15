@@ -1,9 +1,10 @@
 # Cloudflare Workers Hello World with D1
 
 This project deploys a minimal Cloudflare Worker that renders a webpage whose
-content is served from a Cloudflare D1 database. The worker requires an active
-D1 binding and will surface an error if the database has not been created yet so
-that misconfigurations are caught early during deployment.
+content can be served from a Cloudflare D1 database when available. If the D1
+binding has not been created yet, the worker falls back to a built-in greeting
+so that deployments still succeed while clearly indicating that the database is
+missing.
 
 ## Prerequisites
 
@@ -54,7 +55,8 @@ scripts in this repository expect the same variable.
    npm install
    ```
 
-2. Ensure the D1 database exists and that its id is recorded in `wrangler.toml`:
+2. (Optional) Ensure the D1 database exists and that its id is recorded in
+   `wrangler.toml`:
 
    ```bash
    npm run db:ensure
@@ -83,31 +85,45 @@ scripts in this repository expect the same variable.
 
 ## Local development
 
-Start a local development server with an attached D1 database:
+Start a local development server with the built-in greeting:
 
 ```bash
 npm run dev
 ```
 
-Wrangler will run the worker and automatically expose the D1 database so the
-`Hello World` message can be retrieved.
+Wrangler will run the worker without a D1 binding. To attach D1, run the dev
+server with the `d1` environment after configuring the binding:
+
+```bash
+wrangler dev --env d1
+```
+
+When the binding is present, the greeting is read from the D1 database.
 
 ## Deploy
 
-When you're ready to deploy the worker to Cloudflare, run:
+When you're ready to deploy the worker to Cloudflare without a database, run:
 
 ```bash
 npm run deploy
 ```
 
-The deployment command first verifies that the D1 database exists (creating it
-and applying the initial migration if necessary) and then deploys the worker.
-Because the worker requires a D1 binding, the deployment will fail quickly if
-credentials are missing or the D1 creation step cannot be completed.
+The worker will serve the built-in greeting if D1 is not available. To deploy
+with D1, first create the database (see step 2) and then run:
+
+```bash
+npm run deploy:d1
+```
+
+This command verifies that the D1 database exists (creating it and applying the
+initial migration if necessary) and then deploys the worker with the
+`HELLO_WORLD_DB` binding.
 
 ## Customizing the greeting
 
-To change the greeting, update the value in the D1 database. For example:
+To change the greeting, either update the value in the D1 database or adjust the
+`DEFAULT_GREETING` variable in `wrangler.toml`. For example, to edit the D1
+record:
 
 ```bash
 wrangler d1 execute hello_world \

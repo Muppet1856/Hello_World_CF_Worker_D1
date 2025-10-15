@@ -4,8 +4,14 @@ compatibility_date = "2024-04-03"
 
 [vars]
 SITE_TITLE = "Hello World"
+DEFAULT_GREETING = "Hello World"
 
-[[d1_databases]]
+# Deploying without --env will use the built-in greeting with no D1 binding.
+
+[env.d1]
+name = "hello-world-d1"
+
+[[env.d1.d1_databases]]
 binding = "HELLO_WORLD_DB"
 database_name = "hello_world"
 # Replace this placeholder (or run `npm run db:ensure`) after creating the database

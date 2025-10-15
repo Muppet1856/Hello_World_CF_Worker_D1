@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "node scripts/ensure-db.mjs && wrangler deploy",
+    "deploy": "wrangler deploy",
+    "deploy:d1": "node scripts/ensure-db.mjs && wrangler deploy --env d1",
     "migrate": "wrangler d1 migrations apply hello_world",
     "db:ensure": "node scripts/ensure-db.mjs",
     "db:id": "node scripts/get-db-id.mjs",
