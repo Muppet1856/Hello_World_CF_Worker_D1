@@ -21,6 +21,10 @@ function updateWranglerToml(databaseId, wranglerPath) {
   writeFileSync(absolutePath, updated);
 }
 
+export function writeDatabaseIdToConfig(databaseId, wranglerPath) {
+  updateWranglerToml(databaseId, wranglerPath);
+}
+
 function readDatabaseIdFromEnv(variableName) {
   const value = process.env[variableName];
 
@@ -72,7 +76,7 @@ function main() {
 
   try {
     const databaseId = envVar ? readDatabaseIdFromEnv(envVar) : fetchDatabaseId(databaseName);
-    updateWranglerToml(databaseId, wranglerPath);
+    writeDatabaseIdToConfig(databaseId, wranglerPath);
 
     if (envVar) {
       console.log(`Updated ${wranglerPath} with database id from $${envVar}.`);
