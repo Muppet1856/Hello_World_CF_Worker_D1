@@ -1,8 +1,6 @@
-name = "hello-world-worker"
+name = "hello-world"
 main = "src/index.js"
 compatibility_date = "2024-04-03"
-
-default_environment = "production"
 
 [vars]
 SITE_TITLE = "Hello World"
@@ -10,16 +8,16 @@ SITE_TITLE = "Hello World"
 [[d1_databases]]
 binding = "HELLO_WORLD_DB"
 database_name = "hello_world"
-# Replace this placeholder (or run `npm run db:set-id`) after creating the database
+# Replace this placeholder (or run `npm run db:ensure`) after creating the database
 # with `wrangler d1 create hello_world`.
 database_id = "00000000-0000-0000-0000-000000000000"
 
 [env.preview]
-name = "hello-world-worker-preview"
+name = "hello-world-preview"
 
 [[env.preview.d1_databases]]
 binding = "HELLO_WORLD_DB"
 database_name = "hello_world"
 # This can match the production database id once created
 # or you can leave it blank for local development.
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = ""
