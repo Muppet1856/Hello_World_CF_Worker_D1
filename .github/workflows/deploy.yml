@@ -40,14 +40,14 @@ jobs:
           # Check if DB exists and get ID
           DB_ID=$(echo "$DBS" | jq -r --arg name "$DB_NAME" '.[] | select(.name == $name) | .id')
 
-          if [ -z "$DB_ID" ]; then
+          if [ -z "$DB_ID" ] || [ "$DB_ID" = "null" ]; then
             # Create if not exists
             echo "Creating new D1 database \"$DB_NAME\""
             npx wrangler d1 create $DB_NAME
             DBS=$(npx wrangler d1 list --json)
             DB_ID=$(echo "$DBS" | jq -r --arg name "$DB_NAME" '.[] | select(.name == $name) | .id')
 
-            if [ -z "$DB_ID" ]; then
+            if [ -z "$DB_ID" ] || [ "$DB_ID" = "null" ]; then
               echo "Failed to determine database ID for \"$DB_NAME\" after creation" >&2
               exit 1
             fi
@@ -58,6 +58,11 @@ jobs:
           fi
 
           # Check if binding already exists in wrangler.toml to avoid duplicates
+          if [ -z "$DB_ID" ] || [ "$DB_ID" = "null" ]; then
+            echo "Unable to determine a valid database ID for \"$DB_NAME\"." >&2
+            exit 1
+          fi
+
           if ! grep -q "database_id = \"$DB_ID\"" wrangler.toml; then
             # Append D1 binding to wrangler.toml
             echo "" >> wrangler.toml  # Newline for safety
