@@ -3,7 +3,7 @@ name: Deploy to Cloudflare Worker with D1
 on:
   push:
     branches:
-      - main  # Or your default branch
+      - main
 
 jobs:
   deploy:
@@ -15,69 +15,51 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'  # Or your project's Node version
+          node-version: '20'
 
       - name: Install dependencies
         run: |
           npm install wrangler@4 --save-dev
-          sudo apt update && sudo apt install -y jq  # For JSON parsing
+          sudo apt update && sudo apt install -y jq
 
       - name: Create or get D1 database and bind
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          # Set database name (change as needed)
-          DB_NAME= ${{ vars.DB_NAME }}
-          BINDING_NAME= ${{ vars.BINDING_NAME }}  # The env variable name in your Worker code (e.g., env.DB)
-
-          # Authenticate Wrangler (uses CF_API_TOKEN env var automatically)
+          DB_NAME=${{ vars.DB_NAME }}
+          BINDING_NAME=${{ vars.BINDING_NAME }}
+          # Validate variables
+          if [ -z "$DB_NAME" ]; then
+            echo "Error: DB_NAME is not set. Please define it in GitHub repository variables." >&2
+            exit 1
+          fi
+          if [ -z "$BINDING_NAME" ]; then
+            echo "Error: BINDING_NAME is not set. Please define it in GitHub repository variables." >&2
+            exit 1
+          fi
           npx wrangler whoami
-
-          # List existing D1 databases
           DBS=$(npx wrangler d1 list --json)
-
-          # Check if DB exists and get ID
-          DB_ID=$(echo "$DBS" | jq -r --arg name "$DB_NAME" '
-            first(
-              .. | objects
-              | select(.name? == $name)
-              | (.uuid // .id // .database_id // empty)
-            )
-          ')
-
-          if [ -z "$DB_ID" ] || [ "$DB_ID" = "null" ]; then
-            # Create if not exists
+          DB_ID=$(echo "$DBS" | jq -r --arg name "$DB_NAME" '.[] | select(.name == $name) | .uuid')
+          if [ -z "$DB_ID" ]; then
             echo "Creating new D1 database \"$DB_NAME\""
-            npx wrangler d1 create $DB_NAME
+            npx wrangler d1 create "$DB_NAME"
             DBS=$(npx wrangler d1 list --json)
-            DB_ID=$(echo "$DBS" | jq -r --arg name "$DB_NAME" '
-              first(
-                .. | objects
-                | select(.name? == $name)
-                | (.uuid // .id // .database_id // empty)
-              )
-            ')
-
-            if [ -z "$DB_ID" ] || [ "$DB_ID" = "null" ]; then
+            DB_ID=$(echo "$DBS" | jq -r --arg name "$DB_NAME" '.[] | select(.name == $name) | .uuid')
+            if [ -z "$DB_ID" ]; then
               echo "Failed to determine database ID for \"$DB_NAME\" after creation" >&2
               exit 1
             fi
-
             echo "Created new D1 database with ID: $DB_ID"
           else
             echo "Using existing D1 database with ID: $DB_ID"
           fi
-
-          # Check if binding already exists in wrangler.toml to avoid duplicates
-          if [ -z "$DB_ID" ] || [ "$DB_ID" = "null" ]; then
+          if [ -z "$DB_ID" ]; then
             echo "Unable to determine a valid database ID for \"$DB_NAME\"." >&2
             exit 1
           fi
-
           if ! grep -q "database_id = \"$DB_ID\"" wrangler.toml; then
-            # Append D1 binding to wrangler.toml
-            echo "" >> wrangler.toml  # Newline for safety
+            echo "" >> wrangler.toml
             echo "[[d1_databases]]" >> wrangler.toml
             echo "binding = \"$BINDING_NAME\"" >> wrangler.toml
             echo "database_name = \"$DB_NAME\"" >> wrangler.toml
@@ -86,8 +68,6 @@ jobs:
           else
             echo "D1 binding already present in wrangler.toml"
           fi
-
-          # Expose database information to subsequent workflow steps
           {
             echo "DB_NAME=$DB_NAME"
             echo "DB_ID=$DB_ID"
@@ -97,13 +77,26 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
-          # Apply all .sql files in migrations folder, in order
           for file in migrations/*.sql; do
             if [ -f "$file" ]; then
               echo "Applying migration: $file"
-              npx wrangler d1 execute $DB_NAME --file="$file" --remote
+              if ! npx wrangler d1 execute "$DB_NAME" --file="$file" --remote; then
+                echo "Failed to apply migration: $file" >&2
+                exit 1
+              fi
+            else
+              echo "No migration files found in migrations/ folder"
             fi
           done
+          # Verify table creation
+          echo "Verifying table creation"
+          TABLES=$(npx wrangler d1 execute "$DB_NAME" --command="SELECT name FROM sqlite_master WHERE type='table' AND name='greetings'" --json --remote)
+          if echo "$TABLES" | grep -q '"name": "greetings"'; then
+            echo "Table 'greetings' confirmed in database"
+          else
+            echo "Table 'greetings' not found in database" >&2
+            exit 1
+          fi
 
       - name: Deploy Worker
         uses: cloudflare/wrangler-action@v3
