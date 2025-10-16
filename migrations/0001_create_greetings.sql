@@ -6,4 +6,7 @@ CREATE TABLE IF NOT EXISTS greetings (
 
 -- Seed the table with the default "Hello World" greeting.
 INSERT INTO greetings (message)
-VALUES ("Hello World");
+SELECT "Hello World"
+WHERE NOT EXISTS (
+  SELECT 1 FROM greetings
+);
