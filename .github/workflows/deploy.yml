@@ -102,7 +102,7 @@ jobs:
           for file in migrations/*.sql; do
             if [ -f "$file" ]; then
               echo "Applying migration: $file"
-              npx wrangler d1 execute $DB_NAME --file="$file"
+              npx wrangler d1 execute $DB_NAME --file="$file" --remote
             fi
           done
 
