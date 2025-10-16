@@ -42,8 +42,16 @@ jobs:
 
           if [ -z "$DB_ID" ]; then
             # Create if not exists
-            CREATE_OUTPUT=$(npx wrangler d1 create $DB_NAME --json)
-            DB_ID=$(echo "$CREATE_OUTPUT" | jq -r '.uuid')  # Note: Output uses 'uuid' for ID
+            echo "Creating new D1 database \"$DB_NAME\""
+            npx wrangler d1 create $DB_NAME
+            DBS=$(npx wrangler d1 list --json)
+            DB_ID=$(echo "$DBS" | jq -r --arg name "$DB_NAME" '.[] | select(.name == $name) | .id')
+
+            if [ -z "$DB_ID" ]; then
+              echo "Failed to determine database ID for \"$DB_NAME\" after creation" >&2
+              exit 1
+            fi
+
             echo "Created new D1 database with ID: $DB_ID"
           else
             echo "Using existing D1 database with ID: $DB_ID"

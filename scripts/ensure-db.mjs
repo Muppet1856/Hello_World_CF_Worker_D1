@@ -38,34 +38,34 @@ function parseArguments(argv) {
 }
 
 function createDatabase(databaseName) {
-  const command = `wrangler d1 create ${databaseName} --json`;
+  const command = `wrangler d1 create ${databaseName}`;
   const stdout = execSync(command, { stdio: ['ignore', 'pipe', 'inherit'] });
-  const text = stdout.toString();
+  const text = stdout.toString().trim();
 
-  let response;
+  let databaseId = null;
 
-  try {
-    response = JSON.parse(text);
-  } catch (error) {
-    throw new Error(`Unexpected response from \"${command}\": ${text.trim()}`);
+  if (text) {
+    try {
+      const response = JSON.parse(text);
+      databaseId = extractDatabaseId(response);
+    } catch (error) {
+      console.warn('Wrangler create output was not JSON. Falling back to querying the API for the database id.');
+    }
   }
 
-  let databaseId = extractDatabaseId(response);
-
   if (!databaseId) {
-    console.warn('Wrangler did not return a database id directly after creation. Falling back to querying the API...');
-
     try {
       databaseId = fetchDatabaseId(databaseName);
     } catch (lookupError) {
       const message = lookupError.stderr?.toString()?.trim() ?? lookupError.message;
+      const responseSnippet = text ? `Wrangler response: ${text}\n` : '';
       throw new Error(
-        `Created the database but could not determine its id. Wrangler response: ${text.trim()}\nLookup error: ${message}`,
+        `Created the database but could not determine its id. ${responseSnippet}Lookup error: ${message}`,
       );
     }
   }
 
-  console.log(`Created D1 database \"${databaseName}\" with id ${databaseId}.`);
+  console.log(`Created D1 database "${databaseName}" with id ${databaseId}.`);
   return databaseId;
 }
 
