@@ -29,7 +29,7 @@ jobs:
         run: |
           # Set database name (change as needed)
           DB_NAME= ${{ vars.DB_NAME }}
-          BINDING_NAME="HELLO_WORLD_DB"  # The env variable name in your Worker code (e.g., env.DB)
+          BINDING_NAME= ${{ vars.BINDING_NAME }}  # The env variable name in your Worker code (e.g., env.DB)
 
           # Authenticate Wrangler (uses CF_API_TOKEN env var automatically)
           npx wrangler whoami
