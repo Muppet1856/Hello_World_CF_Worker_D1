@@ -91,6 +91,7 @@ jobs:
           {
             echo "DB_NAME=$DB_NAME"
             echo "DB_ID=$DB_ID"
+            echo "BINDING_NAME=$BINDING_NAME"
           } >> "$GITHUB_ENV"
 
       - name: Apply schema migrations
@@ -101,8 +102,51 @@ jobs:
             echo "DB_NAME is not set. Ensure the database step populated GITHUB_ENV." >&2
             exit 1
           fi
-          npx wrangler d1 execute "$DB_NAME" --file=./migrations/0001_create_greetings.sql  # Runs remotely by default
-          echo "Creation of tables executed." >&2
+          MIGRATIONS_DIR=$(python3 - <<'PY'
+import os
+from pathlib import Path
+
+DEFAULT = "migrations"
+wrangler_path = Path("wrangler.toml")
+if not wrangler_path.exists():
+    print(DEFAULT, end="")
+    raise SystemExit
+
+try:
+    import tomllib  # Python 3.11+
+except ModuleNotFoundError:  # pragma: no cover
+    print(DEFAULT, end="")
+    raise SystemExit
+
+with wrangler_path.open("rb") as fp:
+    data = tomllib.load(fp)
+
+db_name = os.environ.get("DB_NAME")
+binding_name = os.environ.get("BINDING_NAME")
+
+for entry in data.get("d1_databases", []):
+    if entry.get("database_name") == db_name or entry.get("binding") == binding_name:
+        print(entry.get("migrations_dir", DEFAULT), end="")
+        break
+else:
+    print(data.get("migrations_dir", DEFAULT), end="")
+PY
+)
+
+          if [ -z "$MIGRATIONS_DIR" ]; then
+            MIGRATIONS_DIR="migrations"
+          fi
+
+          if [ ! -d "$MIGRATIONS_DIR" ]; then
+            echo "Migrations directory '$MIGRATIONS_DIR' not found. Expected a folder containing .sql files." >&2
+            exit 1
+          fi
+
+          echo "Applying schema migrations from '$MIGRATIONS_DIR':"
+          find "$MIGRATIONS_DIR" -maxdepth 1 -type f -name '*.sql' -print | sort || true
+
+          npx wrangler d1 migrations apply "$DB_NAME" --remote
+          echo "Schema migrations applied remotely." >&2
 
       - name: Deploy Worker
         uses: cloudflare/wrangler-action@v3

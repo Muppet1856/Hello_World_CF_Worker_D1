@@ -85,6 +85,10 @@ scripts in this repository expect the same variable.
    wrangler d1 migrations apply hello_world --remote
    ```
 
+   The GitHub Actions workflow uses the same convention. It reads the
+   `migrations_dir` defined for the D1 binding in `wrangler.toml` (falling back to
+   `./migrations`) and applies any `.sql` files found there when deploying.
+
 ## Local development
 
 Start a local development server with the built-in greeting:
