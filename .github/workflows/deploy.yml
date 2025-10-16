@@ -19,7 +19,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          npm install wrangler --save-dev
+          npm install wrangler@4 --save-dev
           sudo apt update && sudo apt install -y jq  # For JSON parsing
 
       - name: Create or get D1 database and bind
