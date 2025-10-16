@@ -101,7 +101,7 @@ function main() {
     writeDatabaseIdToConfig(databaseId, wranglerPath);
     console.log(`Updated ${wranglerPath} with database id ${databaseId}.`);
 
-    if (created && runMigrations) {
+    if (runMigrations) {
       applyMigrations(databaseName);
     }
   } catch (error) {
