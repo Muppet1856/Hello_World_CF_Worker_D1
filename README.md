@@ -24,6 +24,24 @@ missing.
 └── wrangler.toml                # Wrangler configuration and D1 binding
 ```
 
+## Available npm scripts
+
+These helper scripts wrap the Wrangler CLI so you can bootstrap the D1 database
+and deploy the worker with a single command. Run them with `npm run <script>`:
+
+| Script | Description |
+| --- | --- |
+| `dev` | Start a local development server that serves the built-in greeting. |
+| `build` | Ensure the D1 database exists and write its id to `wrangler.toml`. |
+| `deploy` | Publish the worker without requiring a D1 binding. |
+| `deploy:d1` | Create the database if needed, run migrations, and deploy with the D1 binding. |
+| `migrate` | Apply SQL migrations to the local development database. |
+| `db:ensure` | Create or verify the D1 database outside of the build process. |
+| `db:id` | Print the current D1 database id that Wrangler will use. |
+| `db:set-id` | Update `wrangler.toml` with a provided database id. |
+| `db:github-env` | Export the database id to the `GITHUB_ENV` file in CI workflows. |
+| `db:apply-env` | Read a database id from the environment and persist it to `wrangler.toml`. |
+
 ## Cloudflare API token
 
 Wrangler authenticates with Cloudflare using an [API token](https://dash.cloudflare.com/profile/api-tokens).
@@ -46,6 +64,21 @@ Store the token in the `CLOUDFLARE_API_TOKEN` environment variable locally (for
 example by using a `.env` file) and in `secrets.CLOUDFLARE_API_TOKEN` when using
 GitHub Actions. Wrangler will read the value automatically, and the helper
 scripts in this repository expect the same variable.
+
+## Cloudflare account id
+
+Most deployment and database commands also need your **Account ID** so they can
+target the correct Cloudflare account. You can obtain and store it as follows:
+
+1. Visit the Cloudflare dashboard, pick the account in the top-left account
+   switcher, and copy the **Account ID** shown on the **Overview** page. The ID
+   is a 32-character hexadecimal string.
+2. Alternatively, run `wrangler whoami --json` and copy the `account_id`
+   property from the output.
+3. Save the value in the `CLOUDFLARE_ACCOUNT_ID` environment variable (for
+   example in a `.env` file) and add it to `secrets.CLOUDFLARE_ACCOUNT_ID` in
+   GitHub Actions so the provided npm scripts and workflows can authenticate API
+   requests for your D1 database.
 
 ## Setup
 
