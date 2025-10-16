@@ -102,6 +102,7 @@ jobs:
             exit 1
           fi
           npx wrangler d1 execute "$DB_NAME" --file=./migrations/0001_create_greetings.sql  # Runs remotely by default
+          echo "Creation of tables executed." >&2
 
       - name: Deploy Worker
         uses: cloudflare/wrangler-action@v3
