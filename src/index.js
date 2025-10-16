@@ -56,8 +56,9 @@ function resolveFallbackGreeting(env, reason) {
 
 async function resolveGreeting(env) {
   if (!env?.HELLO_WORLD_DB) {
+    const reason = "The HELLO_WORLD_DB binding is not configured.";
     console.warn("HELLO_WORLD_DB binding not found on env; falling back to default greeting.");
-    return resolveFallbackGreeting(env);
+    return resolveFallbackGreeting(env, reason);
   }
 
   try {
