@@ -97,7 +97,6 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
-          DB_NAME="hello-world"
           # Apply all .sql files in migrations folder, in order
           for file in migrations/*.sql; do
             if [ -f "$file" ]; then
