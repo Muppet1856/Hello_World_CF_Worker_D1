@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+  pull_request:
 
 jobs:
   deploy:
@@ -98,7 +99,16 @@ jobs:
             exit 1
           fi
 
-      - name: Deploy Worker
+      - name: Deploy Worker (preview)
+        if: github.event_name == 'pull_request'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy --env preview
+
+      - name: Deploy Worker (production)
+        if: github.event_name != 'pull_request'
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
