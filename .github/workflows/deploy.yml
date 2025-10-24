@@ -192,7 +192,7 @@ jobs:
           fi
           echo "Verifying table creation"
           TABLES=$(npx wrangler d1 execute "$DB_NAME" --command="SELECT name FROM sqlite_master WHERE type='table'" --json --remote)
-          if [ -n "$(echo "$TABLES" | jq -r '.result[] | select(.name != null)')" ]; then
+          if [ -n "$(echo "$TABLES" | jq -r '.[0].results[] | select(.name != null)')" ]; then
             echo "Tables confirmed in database"  # Confirm at least one table exists
           else
             echo "No tables found in database" >&2
