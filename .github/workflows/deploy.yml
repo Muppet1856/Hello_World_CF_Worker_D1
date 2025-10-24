@@ -36,6 +36,7 @@ jobs:
           # Environment-specific overrides (optional, e.g., for production)
           echo "[env.production]" >> wrangler.toml
           echo "name = \"$WORKER_NAME-prod\"" >> wrangler.toml
+          cat wrangler.toml
 
       - name: Create or get D1 database and bind
         env:
