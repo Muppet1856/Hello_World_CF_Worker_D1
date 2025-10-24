@@ -1,5 +1,18 @@
 # Cloudflare Workers Hello World with D1 
 
+This repository is intentionally structured so you can fork it and bootstrap
+your own Worker + D1 project on Cloudflare's infrastructure with minimal
+changes. It demonstrates how to provision the required database, bind it to a
+Worker, and automate deployments through GitHub Actions so you can focus on the
+application logic rather than the initial setup.
+
+The ready-to-deploy configuration is especially handy for vibe-coding
+experiments with AI assistants such as ChatGPT-Codex, where you want to
+prototype dynamic sites quickly and then ship them through the same automated
+pipeline. By forking the repo, running the documented scripts, and letting your
+assistant iterate on the Worker, you can move from idea to hosted experience in
+minutes without pausing to wire up infrastructure.
+
 This project deploys a minimal Cloudflare Worker that renders a webpage whose
 content can be served from a Cloudflare D1 database when available. If the D1
 binding has not been created yet, the worker falls back to a built-in greeting
@@ -157,6 +170,39 @@ This command verifies that the D1 database exists (creating it and applying the
 initial migration if necessary) and then deploys the worker with the
 `HELLO_WORLD_DB` binding.
 
+## GitHub Actions deployment workflow
+
+Automated deployments are handled by [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml).
+The workflow publishes production builds whenever commits land on `main` and
+creates preview environments for open pull requests. Preview builds reuse the
+Worker code from the branch, spin up an isolated D1 database that mirrors the
+schema from the `migrations/` directory, and post the resulting URL to the pull
+request for easy testing.
+
+When a pull request is closed, the companion cleanup job removes the temporary
+Worker and its database so you do not run into D1 instance limits. Production
+deployments continue to use the Worker name provided in the repository
+configuration.
+
+### Required repository configuration
+
+The workflow relies on a mix of GitHub secrets and repository variables. Add
+the following entries in **Settings → Secrets and variables → Actions** before
+enabling it:
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `CLOUDFLARE_API_TOKEN` | Secret | Token with permission to manage Workers, routes, and D1 databases. |
+| `CLOUDFLARE_ACCOUNT_ID` | Secret | Cloudflare account identifier used when talking to the API. |
+| `WORKER_NAME` | Variable | Base name for the Worker and production D1 database (for example `hello-world-cf-worker-d1`). |
+| `BINDING_NAME` | Variable | The D1 binding name that should be written to `wrangler.toml` (use `HELLO_WORLD_DB` to match the worker code). |
+| `DOMAIN` | Variable (optional) | Custom domain used for preview routes. Leave unset to use the default `<worker>.workers.dev` domain. |
+
+You can also define plain variables such as `DEFAULT_GREETING` and `SITE_TITLE`
+if you want the automated deployments to expose the same configuration values
+as your production Worker. They will be available as environment variables
+inside the Worker runtime.
+
 ### Cloudflare Git integration
 
 Cloudflare's Git integration remains disabled for this repository. The
@@ -165,8 +211,8 @@ our need to generate `wrangler.toml` dynamically during CI and manual deploys.
 Keeping the integration inactive prevents Cloudflare from attempting to clone
 the repository on its own, which previously caused builds to fail before the
 configuration file could be written. Continue triggering deployments through
-the provided npm scripts (or your own CI workflow) so the configuration can be
-constructed on the fly before Wrangler runs.
+the provided npm scripts or the GitHub Actions workflow so the configuration
+can be constructed on the fly before Wrangler runs.
 
 ## Configure the Cloudflare environment
 
@@ -252,7 +298,3 @@ via `GITHUB_ENV`, and a companion command can then apply the value to
 Subsequent steps can then read `${{ env.CF_D1_DATABASE_ID }}` or rely on the
 updated config file. If you are happy with the default `D1_DATABASE_ID` variable
 name you can omit both `--github-env` and `--env`.
-
-This repository also includes an example workflow at
-`.github/workflows/apply-d1-id.yml` that wires these steps together for a
-manual, `workflow_dispatch`-triggered run.
