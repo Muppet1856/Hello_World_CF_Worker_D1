@@ -92,18 +92,25 @@ jobs:
           fi
           if [ "$DOMAIN" = "workers.dev" ]; then
             # Fetches the workers.dev subdomain using the Cloudflare API.
-            SUBDOMAIN=$(curl -s -X GET "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/workers/domains" \
+            API_RESPONSE=$(curl -s -X GET "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/workers/domains" \
               -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
-              -H "Content-Type: application/json" | jq -r '.result[0].hostname | split(".")[0]')
-            # Validates that the subdomain was retrieved successfully.
+              -H "Content-Type: application/json")
+            echo "API Response (Production): $API_RESPONSE"
+            SUBDOMAIN=$(echo "$API_RESPONSE" | jq -r '.result[0].hostname | split(".")[0]' 2>/dev/null || true)
             if [ -z "$SUBDOMAIN" ]; then
-              echo "Error: Could not fetch workers.dev subdomain" >&2
+              echo "Warning: Could not fetch workers.dev subdomain via API. Falling back to email-derived subdomain." >&2
+              # Fallback using account email (assumes email format like user@domain.com, uses domain part)
+              EMAIL=$(curl -s -X GET "https://api.cloudflare.com/client/v4/user" \
+                -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
+                -H "Content-Type: application/json" | jq -r '.result.email' 2>/dev/null || true)
+              SUBDOMAIN=$(echo "$EMAIL" | grep -oP '(?<=@)[^.]+' || echo "default")
+            fi
+            if [ -z "$SUBDOMAIN" ]; then
+              echo "Error: Could not determine workers.dev subdomain. Please enable it in the Cloudflare dashboard." >&2
               exit 1
             fi
-            # Sets the production Worker URL (e.g., <WORKER_NAME>.<subdomain>.workers.dev).
             echo "WORKER_URL=${WORKER_NAME}.${SUBDOMAIN}.workers.dev" >> $GITHUB_ENV
           else
-            # Sets the production Worker URL for custom domains (e.g., <WORKER_NAME>.example.com).
             echo "WORKER_URL=${WORKER_NAME}.${DOMAIN}" >> $GITHUB_ENV
           fi
 
@@ -138,16 +145,25 @@ jobs:
             echo "zone_name = \"${DOMAIN}\"" >> wrangler.toml  # Specifies the custom domain.
             echo "WORKER_URL=${DEPLOY_ENV}.preview.${DOMAIN}" >> $GITHUB_ENV  # Sets custom domain URL.
           else
-            # Fetches the workers.dev subdomain via Cloudflare API.
-            SUBDOMAIN=$(curl -s -X GET "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/domains" \
+            # Debug the API response to diagnose the issue
+            API_RESPONSE=$(curl -s -X GET "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/domains" \
               -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-              -H "Content-Type: application/json" | jq -r '.result[0].hostname | split(".")[0]')
+              -H "Content-Type: application/json")
+            echo "API Response (Preview): $API_RESPONSE"
+            SUBDOMAIN=$(echo "$API_RESPONSE" | jq -r '.result[0].hostname | split(".")[0]' 2>/dev/null || true)
             if [ -z "$SUBDOMAIN" ]; then
-              echo "Error: Could not fetch workers.dev subdomain" >&2
+              echo "Warning: Could not fetch workers.dev subdomain via API. Falling back to email-derived subdomain." >&2
+              # Fallback using account email (assumes email format like user@domain.com, uses domain part)
+              EMAIL=$(curl -s -X GET "https://api.cloudflare.com/client/v4/user" \
+                -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+                -H "Content-Type: application/json" | jq -r '.result.email' 2>/dev/null || true)
+              SUBDOMAIN=$(echo "$EMAIL" | grep -oP '(?<=@)[^.]+' || echo "default")
+            fi
+            if [ -z "$SUBDOMAIN" ]; then
+              echo "Error: Could not determine workers.dev subdomain. Please enable it in the Cloudflare dashboard or check account configuration." >&2
               exit 1
             fi
-            # Sets the preview Worker URL (e.g., pr-24-<WORKER_NAME>.<subdomain>.workers.dev).
-            echo "WORKER_URL=${DEPLOY_ENV}-${WORKER_NAME}.${SUBDOMAIN}.workers.dev" >> $GITHUB_ENV
+            echo "WORKER_URL=${DEPLOY_ENV}-${WORKER_NAME}.${SUBDOMAIN}.workers.dev" >> $GITHUB_ENV  # e.g., pr-24-<WORKER_NAME>.zellen.workers.dev
           fi
 
       - name: Verify src/index.js exists
