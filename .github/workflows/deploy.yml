@@ -113,6 +113,7 @@ jobs:
             echo "Table 'greetings' not found in database" >&2
             exit 1
           fi
+          cat wrangler.toml
 
       - name: Deploy Worker
         uses: cloudflare/wrangler-action@v3
