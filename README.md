@@ -1,4 +1,4 @@
-# Cloudflare Workers Hello World with D1
+# Cloudflare Workers Hello World with D1 
 
 This project deploys a minimal Cloudflare Worker that renders a webpage whose
 content can be served from a Cloudflare D1 database when available. If the D1
