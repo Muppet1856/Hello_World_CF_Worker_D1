@@ -34,7 +34,6 @@ jobs:
           echo "main = \"src/index.js\"" >> wrangler.toml
           echo "compatibility_date = \"2024-04-03\"" >> wrangler.toml
           # Environment-specific overrides (optional, e.g., for production)
-          echo "[env.production]" >> wrangler.toml
           echo "name = \"$WORKER_NAME\"" >> wrangler.toml
           cat wrangler.toml
 
