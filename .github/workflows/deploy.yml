@@ -4,12 +4,6 @@ on:
   push:
     branches:
       - main
-  pull_request:
-    types:
-      - opened
-      - synchronize
-      - reopened
-      - closed
 
 jobs:
   deploy:
@@ -29,19 +23,14 @@ jobs:
           sudo apt update && sudo apt install -y jq
 
       - name: Create or get D1 database and bind
-        if: github.event_name != 'pull_request' || github.event.action != 'closed'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          set -euo pipefail
-
-          BASE_DB_NAME=${{ vars.DB_NAME }}
-          PREVIEW_DB_PREFIX=${{ vars.PREVIEW_DB_PREFIX }}
+          DB_NAME=${{ vars.DB_NAME }}
           BINDING_NAME=${{ vars.BINDING_NAME }}
-          EVENT_NAME=${{ github.event_name }}
-
-          if [ -z "$BASE_DB_NAME" ]; then
+          # Validate variables
+          if [ -z "$DB_NAME" ]; then
             echo "Error: DB_NAME is not set. Please define it in GitHub repository variables." >&2
             exit 1
           fi
@@ -49,19 +38,6 @@ jobs:
             echo "Error: BINDING_NAME is not set. Please define it in GitHub repository variables." >&2
             exit 1
           fi
-
-          DB_NAME="$BASE_DB_NAME"
-          D1_BLOCK_HEADER="[[d1_databases]]"
-
-          if [ "$EVENT_NAME" = "pull_request" ]; then
-            if [ -z "$PREVIEW_DB_PREFIX" ]; then
-              echo "Error: PREVIEW_DB_PREFIX is not set. Please define it in GitHub repository variables." >&2
-              exit 1
-            fi
-            DB_NAME="${PREVIEW_DB_PREFIX}${BASE_DB_NAME}"
-            D1_BLOCK_HEADER="[[env.preview.d1_databases]]"
-          fi
-
           npx wrangler whoami
           DBS=$(npx wrangler d1 list --json)
           DB_ID=$(echo "$DBS" | jq -r --arg name "$DB_NAME" '.[] | select(.name == $name) | .uuid')
@@ -78,32 +54,26 @@ jobs:
           else
             echo "Using existing D1 database with ID: $DB_ID"
           fi
-
           if [ -z "$DB_ID" ]; then
             echo "Unable to determine a valid database ID for \"$DB_NAME\"." >&2
             exit 1
           fi
-
           if ! grep -q "database_id = \"$DB_ID\"" wrangler.toml; then
-            cat <<EOF | tee -a wrangler.toml > /dev/null
-
-$D1_BLOCK_HEADER
-binding = "$BINDING_NAME"
-database_name = "$DB_NAME"
-database_id = "$DB_ID"
-EOF
+            echo "" >> wrangler.toml
+            echo "[[d1_databases]]" >> wrangler.toml
+            echo "binding = \"$BINDING_NAME\"" >> wrangler.toml
+            echo "database_name = \"$DB_NAME\"" >> wrangler.toml
+            echo "database_id = \"$DB_ID\"" >> wrangler.toml
             echo "D1 binding added/updated in wrangler.toml"
           else
             echo "D1 binding already present in wrangler.toml"
           fi
-
           {
             echo "DB_NAME=$DB_NAME"
             echo "DB_ID=$DB_ID"
           } >> "$GITHUB_ENV"
 
       - name: Apply D1 migrations
-        if: github.event_name != 'pull_request' || github.event.action != 'closed'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
@@ -128,131 +98,8 @@ EOF
             exit 1
           fi
 
-      - name: Deploy Worker (preview)
-        if: github.event_name == 'pull_request' && github.event.action != 'closed'
+      - name: Deploy Worker
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy --env preview --config wrangler.toml
-
-      - name: Run smoke tests against preview deployment
-        if: github.event_name == 'pull_request' && github.event.action != 'closed'
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          set -euo pipefail
-          DEPLOYMENTS_JSON=$(npx wrangler deployments list --env preview --config wrangler.toml --json)
-          PREVIEW_URL=$(printf '%s' "$DEPLOYMENTS_JSON" | node <<'NODE'
-            const chunks = [];
-            process.stdin.setEncoding('utf8');
-            process.stdin.resume();
-            process.stdin.on('data', (chunk) => chunks.push(chunk));
-            process.stdin.on('end', () => {
-              const input = chunks.join('');
-              if (!input) {
-                console.error('No deployment data received from Wrangler.');
-                process.exit(1);
-              }
-              const data = JSON.parse(input);
-              const visited = new Set();
-              function findUrl(value) {
-                if (!value || visited.has(value)) {
-                  return null;
-                }
-                if (typeof value === "string" && value.startsWith("https://")) {
-                  return value;
-                }
-                if (Array.isArray(value)) {
-                  for (const item of value) {
-                    const result = findUrl(item);
-                    if (result) {
-                      return result;
-                    }
-                  }
-                  return null;
-                }
-                if (typeof value === "object") {
-                  visited.add(value);
-                  const keys = Object.keys(value);
-                  for (const key of keys) {
-                    const result = findUrl(value[key]);
-                    if (result) {
-                      return result;
-                    }
-                  }
-                }
-                return null;
-              }
-              const url = findUrl(data);
-              if (!url) {
-                console.error('Unable to locate a preview URL in deployments response.');
-                process.exit(1);
-              }
-              console.log(url);
-            });
-          NODE
-          )
-
-          echo "Preview URL: $PREVIEW_URL"
-          curl --fail --silent --show-error "$PREVIEW_URL" --output preview-response.html
-          if ! grep -qi "<!DOCTYPE html" preview-response.html; then
-            echo "Preview response did not contain expected HTML." >&2
-            cat preview-response.html >&2
-            exit 1
-          fi
-          rm preview-response.html
-
-      - name: Tear down merged preview environment
-        if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          set -euo pipefail
-
-          BASE_DB_NAME=${{ vars.DB_NAME }}
-          PREVIEW_DB_PREFIX=${{ vars.PREVIEW_DB_PREFIX }}
-
-          if [ -z "$BASE_DB_NAME" ]; then
-            echo "Error: DB_NAME is not set. Please define it in GitHub repository variables." >&2
-            exit 1
-          fi
-          if [ -z "$PREVIEW_DB_PREFIX" ]; then
-            echo "Error: PREVIEW_DB_PREFIX is not set. Please define it in GitHub repository variables." >&2
-            exit 1
-          fi
-
-          PREVIEW_DB_NAME="${PREVIEW_DB_PREFIX}${BASE_DB_NAME}"
-
-          echo "Removing preview Worker deployment"
-          if npx wrangler delete --env preview --config wrangler.toml --force; then
-            echo "Preview Worker deleted"
-          else
-            echo "Preview Worker deletion command failed (it may not exist). Continuing." >&2
-          fi
-
-          echo "Looking for preview database: $PREVIEW_DB_NAME"
-          DBS=$(npx wrangler d1 list --json)
-          PREVIEW_DB_ID=$(echo "$DBS" | jq -r --arg name "$PREVIEW_DB_NAME" '.[] | select(.name == $name) | .uuid')
-
-          if [ -n "$PREVIEW_DB_ID" ]; then
-            echo "Deleting preview database $PREVIEW_DB_NAME (ID: $PREVIEW_DB_ID)"
-            if npx wrangler d1 delete "$PREVIEW_DB_NAME" -y; then
-              echo "Preview database deleted"
-            else
-              echo "Failed to delete preview database $PREVIEW_DB_NAME" >&2
-              exit 1
-            fi
-          else
-            echo "Preview database $PREVIEW_DB_NAME not found; nothing to delete"
-          fi
-
-      - name: Deploy Worker (production)
-        if: github.event_name != 'pull_request'
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy --config wrangler.toml
