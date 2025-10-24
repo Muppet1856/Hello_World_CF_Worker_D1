@@ -1,9 +1,38 @@
-const DATABASE_NOTE = "This greeting is served from a Cloudflare D1 database.";
 const FALLBACK_NOTE = "This greeting is served from a built-in fallback message.";
 const FALLBACK_WARNING =
   "Create a D1 database and bind it as HELLO_WORLD_DB to serve content from D1.";
 const DEFAULT_GREETING = "Hello World";
 const ERROR_TITLE = "Database unavailable";
+
+function formatDatabaseNote(locationLabel) {
+  const trimmedLocation =
+    typeof locationLabel === "string" && locationLabel.trim().length > 0
+      ? locationLabel.trim()
+      : "an unknown location";
+
+  return `This greeting is served from a Cloudflare D1 database utilizing infrastructure in ${trimmedLocation}.`;
+}
+
+function describeInfrastructureLocation(request) {
+  const cf = request?.cf;
+
+  if (!cf || typeof cf !== "object") {
+    return null;
+  }
+
+  const { city, region, country, colo } = cf;
+  const locationParts = [city, region, country].filter(Boolean);
+
+  if (locationParts.length > 0) {
+    return locationParts.join(", ");
+  }
+
+  if (colo) {
+    return `the ${colo} data center`;
+  }
+
+  return null;
+}
 
 function escapeHtml(value) {
   return String(value)
@@ -54,7 +83,7 @@ function resolveFallbackGreeting(env, reason) {
   };
 }
 
-async function resolveGreeting(env) {
+async function resolveGreeting(env, locationLabel) {
   if (!env?.HELLO_WORLD_DB) {
     const reason = "The HELLO_WORLD_DB binding is not configured.";
     console.warn("HELLO_WORLD_DB binding not found on env; falling back to default greeting.");
@@ -64,7 +93,7 @@ async function resolveGreeting(env) {
   try {
     console.debug("Attempting to read greeting from HELLO_WORLD_DB binding.");
     const message = await readGreetingFromDatabase(env.HELLO_WORLD_DB);
-    return { message, note: DATABASE_NOTE, warning: null };
+    return { message, note: formatDatabaseNote(locationLabel), warning: null };
   } catch (error) {
     console.warn("Falling back to the built-in greeting:", error);
     const reason = error instanceof Error ? error.message : String(error);
@@ -201,7 +230,8 @@ function renderErrorHtml(error, siteTitle) {
 export default {
   async fetch(request, env) {
     try {
-      const { message, note, warning } = await resolveGreeting(env);
+      const locationLabel = describeInfrastructureLocation(request);
+      const { message, note, warning } = await resolveGreeting(env, locationLabel);
       const siteTitle = env?.SITE_TITLE?.trim() || "Hello World";
       const body = renderSuccessHtml(message, siteTitle, note, warning);
 
