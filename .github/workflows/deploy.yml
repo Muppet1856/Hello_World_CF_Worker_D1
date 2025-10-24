@@ -11,9 +11,16 @@ on:
       - reopened
       - closed
 
+concurrency:
+  group: deploy-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  deploy:
+  preview:
+    if: github.event_name == 'pull_request' && github.event.action != 'closed'
     runs-on: ubuntu-latest
+    env:
+      NODE_VERSION: '20'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -21,56 +28,49 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: Install dependencies
         run: |
-          npm install wrangler@4 --save-dev
-          sudo apt update && sudo apt install -y jq
+          npm install --no-save wrangler@4
+          sudo apt-get update
+          sudo apt-get install -y jq
 
-      - name: Create or get D1 database and bind
-        if: github.event_name != 'pull_request' || github.event.action != 'closed'
+      - name: Create or get preview D1 database and bind
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          BASE_DB_NAME: ${{ vars.DB_NAME }}
+          PREVIEW_DB_PREFIX: ${{ vars.PREVIEW_DB_PREFIX }}
+          BINDING_NAME: ${{ vars.BINDING_NAME }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
 
-          BASE_DB_NAME=${{ vars.DB_NAME }}
-          PREVIEW_DB_PREFIX=${{ vars.PREVIEW_DB_PREFIX }}
-          BINDING_NAME=${{ vars.BINDING_NAME }}
-          EVENT_NAME=${{ github.event_name }}
-
-          if [ -z "$BASE_DB_NAME" ]; then
+          if [ -z "${BASE_DB_NAME:-}" ]; then
             echo "Error: DB_NAME is not set. Please define it in GitHub repository variables." >&2
             exit 1
           fi
-          if [ -z "$BINDING_NAME" ]; then
+          if [ -z "${BINDING_NAME:-}" ]; then
             echo "Error: BINDING_NAME is not set. Please define it in GitHub repository variables." >&2
             exit 1
           fi
-
-          DB_NAME="$BASE_DB_NAME"
-          D1_BLOCK_HEADER="[[d1_databases]]"
-
-          if [ "$EVENT_NAME" = "pull_request" ]; then
-            if [ -z "$PREVIEW_DB_PREFIX" ]; then
-              echo "Error: PREVIEW_DB_PREFIX is not set. Please define it in GitHub repository variables." >&2
-              exit 1
-            fi
-            PR_NUMBER="${PR_NUMBER:-}"
-            if [ -z "$PR_NUMBER" ]; then
-              echo "Error: Could not determine pull request number for preview database naming." >&2
-              exit 1
-            fi
-            DB_NAME="${PREVIEW_DB_PREFIX}${PR_NUMBER}_${BASE_DB_NAME}"
-            D1_BLOCK_HEADER="[[env.preview.d1_databases]]"
+          if [ -z "${PREVIEW_DB_PREFIX:-}" ]; then
+            echo "Error: PREVIEW_DB_PREFIX is not set. Please define it in GitHub repository variables." >&2
+            exit 1
           fi
+          if [ -z "${PR_NUMBER:-}" ]; then
+            echo "Error: Could not determine pull request number for preview database naming." >&2
+            exit 1
+          fi
+
+          DB_NAME="${PREVIEW_DB_PREFIX}${PR_NUMBER}_${BASE_DB_NAME}"
+          D1_BLOCK_HEADER="[[env.preview.d1_databases]]"
 
           npx wrangler whoami
           DBS=$(npx wrangler d1 list --json)
           DB_ID=$(echo "$DBS" | jq -r --arg name "$DB_NAME" '.[] | select(.name == $name) | .uuid')
+
           if [ -z "$DB_ID" ]; then
             echo "Creating new D1 database \"$DB_NAME\""
             npx wrangler d1 create "$DB_NAME"
@@ -83,11 +83,6 @@ jobs:
             echo "Created new D1 database with ID: $DB_ID"
           else
             echo "Using existing D1 database with ID: $DB_ID"
-          fi
-
-          if [ -z "$DB_ID" ]; then
-            echo "Unable to determine a valid database ID for \"$DB_NAME\"." >&2
-            exit 1
           fi
 
           if ! grep -q "database_id = \"$DB_ID\"" wrangler.toml; then
@@ -108,11 +103,11 @@ EOF
             echo "DB_ID=$DB_ID"
           } >> "$GITHUB_ENV"
 
-      - name: Apply D1 migrations
-        if: github.event_name != 'pull_request' || github.event.action != 'closed'
+      - name: Apply preview D1 migrations
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
+          set -euo pipefail
           for file in migrations/*.sql; do
             if [ -f "$file" ]; then
               echo "Applying migration: $file"
@@ -124,7 +119,7 @@ EOF
               echo "No migration files found in migrations/ folder"
             fi
           done
-          # Verify table creation
+
           echo "Verifying table creation"
           TABLES=$(npx wrangler d1 execute "$DB_NAME" --command="SELECT name FROM sqlite_master WHERE type='table' AND name='greetings'" --json --remote)
           if echo "$TABLES" | grep -q '"name": "greetings"'; then
@@ -135,7 +130,6 @@ EOF
           fi
 
       - name: Deploy Worker (preview)
-        if: github.event_name == 'pull_request' && github.event.action != 'closed'
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -143,7 +137,6 @@ EOF
           command: deploy --env preview --config wrangler.toml
 
       - name: Run smoke tests against preview deployment
-        if: github.event_name == 'pull_request' && github.event.action != 'closed'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -210,29 +203,155 @@ EOF
           fi
           rm preview-response.html
 
-      - name: Tear down merged preview environment
-        if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true
+  production:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    env:
+      NODE_VERSION: '20'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          npm install --no-save wrangler@4
+          sudo apt-get update
+          sudo apt-get install -y jq
+
+      - name: Create or get production D1 database and bind
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          BASE_DB_NAME: ${{ vars.DB_NAME }}
+          BINDING_NAME: ${{ vars.BINDING_NAME }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${BASE_DB_NAME:-}" ]; then
+            echo "Error: DB_NAME is not set. Please define it in GitHub repository variables." >&2
+            exit 1
+          fi
+          if [ -z "${BINDING_NAME:-}" ]; then
+            echo "Error: BINDING_NAME is not set. Please define it in GitHub repository variables." >&2
+            exit 1
+          fi
+
+          DB_NAME="$BASE_DB_NAME"
+          D1_BLOCK_HEADER="[[d1_databases]]"
+
+          npx wrangler whoami
+          DBS=$(npx wrangler d1 list --json)
+          DB_ID=$(echo "$DBS" | jq -r --arg name "$DB_NAME" '.[] | select(.name == $name) | .uuid')
+
+          if [ -z "$DB_ID" ]; then
+            echo "Creating new D1 database \"$DB_NAME\""
+            npx wrangler d1 create "$DB_NAME"
+            DBS=$(npx wrangler d1 list --json)
+            DB_ID=$(echo "$DBS" | jq -r --arg name "$DB_NAME" '.[] | select(.name == $name) | .uuid')
+            if [ -z "$DB_ID" ]; then
+              echo "Failed to determine database ID for \"$DB_NAME\" after creation" >&2
+              exit 1
+            fi
+            echo "Created new D1 database with ID: $DB_ID"
+          else
+            echo "Using existing D1 database with ID: $DB_ID"
+          fi
+
+          if ! grep -q "database_id = \"$DB_ID\"" wrangler.toml; then
+            cat <<EOF | tee -a wrangler.toml > /dev/null
+
+$D1_BLOCK_HEADER
+binding = "$BINDING_NAME"
+database_name = "$DB_NAME"
+database_id = "$DB_ID"
+EOF
+            echo "D1 binding added/updated in wrangler.toml"
+          else
+            echo "D1 binding already present in wrangler.toml"
+          fi
+
+          {
+            echo "DB_NAME=$DB_NAME"
+            echo "DB_ID=$DB_ID"
+          } >> "$GITHUB_ENV"
+
+      - name: Apply production D1 migrations
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          for file in migrations/*.sql; do
+            if [ -f "$file" ]; then
+              echo "Applying migration: $file"
+              if ! npx wrangler d1 execute "$DB_NAME" --file="$file" --remote; then
+                echo "Failed to apply migration: $file" >&2
+                exit 1
+              fi
+            else
+              echo "No migration files found in migrations/ folder"
+            fi
+          done
+
+          echo "Verifying table creation"
+          TABLES=$(npx wrangler d1 execute "$DB_NAME" --command="SELECT name FROM sqlite_master WHERE type='table' AND name='greetings'" --json --remote)
+          if echo "$TABLES" | grep -q '"name": "greetings"'; then
+            echo "Table 'greetings' confirmed in database"
+          else
+            echo "Table 'greetings' not found in database" >&2
+            exit 1
+          fi
+
+      - name: Deploy Worker (production)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy --config wrangler.toml
+
+  cleanup:
+    if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    env:
+      NODE_VERSION: '20'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          npm install --no-save wrangler@4
+          sudo apt-get update
+          sudo apt-get install -y jq
+
+      - name: Tear down merged preview environment
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          BASE_DB_NAME: ${{ vars.DB_NAME }}
+          PREVIEW_DB_PREFIX: ${{ vars.PREVIEW_DB_PREFIX }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
 
-          BASE_DB_NAME=${{ vars.DB_NAME }}
-          PREVIEW_DB_PREFIX=${{ vars.PREVIEW_DB_PREFIX }}
-
-          if [ -z "$BASE_DB_NAME" ]; then
+          if [ -z "${BASE_DB_NAME:-}" ]; then
             echo "Error: DB_NAME is not set. Please define it in GitHub repository variables." >&2
             exit 1
           fi
-          if [ -z "$PREVIEW_DB_PREFIX" ]; then
+          if [ -z "${PREVIEW_DB_PREFIX:-}" ]; then
             echo "Error: PREVIEW_DB_PREFIX is not set. Please define it in GitHub repository variables." >&2
             exit 1
           fi
-
-          PR_NUMBER="${PR_NUMBER:-}"
-          if [ -z "$PR_NUMBER" ]; then
+          if [ -z "${PR_NUMBER:-}" ]; then
             echo "Error: Could not determine pull request number for preview database naming." >&2
             exit 1
           fi
@@ -261,11 +380,3 @@ EOF
           else
             echo "Preview database $PREVIEW_DB_NAME not found; nothing to delete"
           fi
-
-      - name: Deploy Worker (production)
-        if: github.event_name != 'pull_request'
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy --config wrangler.toml
