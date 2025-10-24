@@ -1,4 +1,4 @@
-# Cloudflare Workers Hello World with D1 
+# Cloudflare Workers Hello World with D1
 
 This repository is intentionally structured so you can fork it and bootstrap
 your own Worker + D1 project on Cloudflare's infrastructure with minimal
