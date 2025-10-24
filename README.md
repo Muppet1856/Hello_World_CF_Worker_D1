@@ -73,12 +73,15 @@ target the correct Cloudflare account. You can obtain and store it as follows:
 1. Visit the Cloudflare dashboard, pick the account in the top-left account
    switcher, and copy the **Account ID** shown on the **Overview** page. The ID
    is a 32-character hexadecimal string.
-2. Alternatively, run `wrangler whoami --json` and copy the `account_id`
-   property from the output.
-3. Save the value in the `CLOUDFLARE_ACCOUNT_ID` environment variable (for
+2. Alternatively, run `wrangler whoami --json` and copy the `account_id` and
+   `user_id` properties from the output. The `account_id` is required by the
+   scripts in this project, and the `user_id` is handy when you need to audit
+   API activity inside the Cloudflare dashboard.
+3. Save the account id in the `CLOUDFLARE_ACCOUNT_ID` environment variable (for
    example in a `.env` file) and add it to `secrets.CLOUDFLARE_ACCOUNT_ID` in
    GitHub Actions so the provided npm scripts and workflows can authenticate API
-   requests for your D1 database.
+   requests for your D1 database. Store the user id somewhere secure alongside
+   your token so you can reference it later if needed.
 
 ## Setup
 
@@ -153,6 +156,66 @@ npm run deploy:d1
 This command verifies that the D1 database exists (creating it and applying the
 initial migration if necessary) and then deploys the worker with the
 `HELLO_WORLD_DB` binding.
+
+### Cloudflare Git integration
+
+Cloudflare's Git integration remains disabled for this repository. The
+automatic cloning performed by Cloudflare's deployment pipeline conflicts with
+our need to generate `wrangler.toml` dynamically during CI and manual deploys.
+Keeping the integration inactive prevents Cloudflare from attempting to clone
+the repository on its own, which previously caused builds to fail before the
+configuration file could be written. Continue triggering deployments through
+the provided npm scripts (or your own CI workflow) so the configuration can be
+constructed on the fly before Wrangler runs.
+
+## Configure the Cloudflare environment
+
+The worker can run without a D1 binding, but the deployment scripts in this
+repository will create the database (if missing) and add the binding to
+`wrangler.toml` automatically. When the first request succeeds you will see the
+default "This greeting is served from a built-in fallback message." copy on the
+page. That "working without" style message confirms that the Worker executed
+successfully even though the database is still being created or bound; it will
+disappear on the next deploy once D1 is reachable.
+
+To align your Cloudflare dashboard with that automated configuration:
+
+1. **Create (or reuse) the Worker.** In the Cloudflare dashboard open
+   **Workers & Pages → Workers**, click **Create**, and choose **Create Worker**.
+   Give it a name that matches the `name` you plan to write into `wrangler.toml`
+   (by default `hello-world-cf-worker-d1`). Deploy once so the worker exists in
+   your account.
+2. **Add the production environment variables.** With the worker selected open
+   **Settings → Variables & Secrets**. Add the following plain-text variables so
+   they match what the worker expects:
+   - `DEFAULT_GREETING` – optional. Overrides the fallback greeting when the D1
+     database is unavailable. If omitted the default remains "Hello World".
+
+   Repeat the same configuration in GitHub so CI builds inherit the variable.
+   In your repository choose **Settings → Secrets and variables → Actions → New
+   variable**, give it the name `DEFAULT_GREETING`, and provide the value that
+   should be available to production deployments. GitHub exposes plain-text
+   variables to Actions workflows, allowing the helper scripts to mirror the
+   Cloudflare dashboard configuration when they generate `wrangler.toml` on the
+   fly.
+3. **Confirm the D1 binding.** The helper scripts update `wrangler.toml` with a
+   `HELLO_WORLD_DB` binding before every deploy, so you do not need to add it
+   manually in the dashboard. After your first deployment, revisit the worker’s
+   **Settings → D1 Databases** tab to confirm the binding appears automatically
+   and is linked to the database that was created for you.
+4. **(Optional) Create additional environments.** If you plan to run `wrangler
+   dev --env d1` or deploy a staging build, add an environment (for example `d1`)
+   from the **Environments** tab. Repeat the same variable configuration for
+   that environment; the automated deployment process will ensure the binding is
+   present there as well.
+5. **Verify access tokens and account id.** Ensure the API token and account id
+   documented earlier are configured as secrets (`CLOUDFLARE_API_TOKEN`) and
+   plain variables (`CLOUDFLARE_ACCOUNT_ID`) in any CI platform that will run
+   the deployment scripts.
+
+Once these steps are complete the next deployment triggered through the npm
+scripts or your automation will provision the D1 database (if needed), attach
+the binding, and serve content from D1 as soon as the greeting row exists.
 
 ## Customizing the greeting
 
