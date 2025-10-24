@@ -22,6 +22,21 @@ jobs:
           npm install wrangler@4 --save-dev
           sudo apt update && sudo apt install -y jq
 
+      -name: Setup worker
+        run: |
+          WORKER_NAME=${{ vars.WORKER_NAME }}
+          # Validate variables
+          if [ -z "$WORKER_NAME" ]; then
+            echo "Error: WORKER_NAME is not set. Please define it in GitHub repository variables." >&2
+            exit 1
+          fi
+          echo "name = \"$WORKER_NAME\"" >> wrangler.toml
+          echo "main = \"src/index.js\"" >> wrangler.toml
+          echo "compatibility_date = \"2024-04-03\"" >> wrangler.toml
+          # Environment-specific overrides (optional, e.g., for production)
+          echo "[env.production]" >> wrangler.toml
+          echo "name = \"$WORKER_NAME-prod\"" >> wrangler.toml
+
       - name: Create or get D1 database and bind
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
