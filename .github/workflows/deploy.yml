@@ -22,7 +22,7 @@ jobs:
           npm install wrangler@4 --save-dev
           sudo apt update && sudo apt install -y jq
 
-      -name: Setup worker
+      - name: Setup worker
         run: |
           WORKER_NAME=${{ vars.WORKER_NAME }}
           # Validate variables
