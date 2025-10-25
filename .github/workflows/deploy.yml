@@ -145,6 +145,11 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
+          WORKER_NAME=${{ vars.WORKER_NAME }}
+          if [ -z "$WORKER_NAME" ]; then
+            echo "Error: WORKER_NAME is not set. Please define it in GitHub repository variables." >&2
+            exit 1
+          fi
           # Retrieves the deployment environment.
           DEPLOY_ENV=${{ env.DEPLOY }}
           # Generates wrangler.toml for the preview Worker.
