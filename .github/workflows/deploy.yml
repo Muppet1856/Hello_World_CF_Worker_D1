@@ -144,6 +144,8 @@ jobs:
             echo "pattern = \"${DEPLOY_ENV}.preview.${DOMAIN}/*\"" >> wrangler.toml  # e.g., pr-24.preview.example.com/*.
             echo "zone_name = \"${DOMAIN}\"" >> wrangler.toml  # Specifies the custom domain.
             echo "WORKER_URL=${DEPLOY_ENV}.preview.${DOMAIN}" >> $GITHUB_ENV  # Sets custom domain URL.
+            echo "========="
+            echo "WORKER_URL=${DEPLOY_ENV}.preview.${DOMAIN}"
           else
             # Debug the API response to diagnose the issue
             API_RESPONSE=$(curl -s -X GET "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/domains" \
@@ -164,6 +166,8 @@ jobs:
               exit 1
             fi
             echo "WORKER_URL=${DEPLOY_ENV}-${WORKER_NAME}.${SUBDOMAIN}.workers.dev" >> $GITHUB_ENV  # e.g., pr-24-<WORKER_NAME>.zellen.workers.dev
+            echo "==================="
+            echo "WORKER_URL=${DEPLOY_ENV}-${WORKER_NAME}.${SUBDOMAIN}.workers.dev"
           fi
 
       - name: Verify src/index.js exists
