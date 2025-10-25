@@ -78,8 +78,13 @@ To use the workflow as-is you need to define the following repository secrets an
 | `WORKER_NAME` | Variable | Base name for the production Worker, e.g. `hello-world-cf-worker-d1`. |
 | `BINDING_NAME` | Variable | D1 binding name expected by the Worker (`HELLO_WORLD_DB` unless you update `src/index.js`). |
 | `DOMAIN` | Variable (optional) | Custom domain for preview deployments. Leave empty to use `<worker>.workers.dev`. |
+| `USE_PRODUCTION_DB_ON_PREVIEW` | Variable (optional) | Set to `true` to reuse the production D1 database for preview deployments. Accepts case-insensitive values like `true`, `yes`, `1`, `on` (and the `false` equivalents) and defaults to `false` when omitted or invalid. |
 
 Feel free to trim the workflow down to the pieces that match your release process.
+
+When `USE_PRODUCTION_DB_ON_PREVIEW` is enabled the workflow skips creating or deleting a per-preview D1 database. The worker also
+exposes a banner on the rendered page that states whether the production or preview database is serving the request so reviewers
+can verify the environment at a glance.
 
 ## Customising the greeting
 

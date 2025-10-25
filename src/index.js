@@ -132,6 +132,21 @@ function buildReleaseSection(releaseLabel, repositorySlug) {
   return "";
 }
 
+function resolveDatabaseSource(env) {
+  const rawValue =
+    typeof env?.DB_SOURCE === "string" ? env.DB_SOURCE.trim().toLowerCase() : "";
+
+  if (rawValue === "production" || rawValue === "prod") {
+    return { label: "Using production database", variant: "production" };
+  }
+
+  if (rawValue === "preview" || rawValue === "staging") {
+    return { label: "Using preview database", variant: "preview" };
+  }
+
+  return { label: "Database source unknown", variant: "unknown" };
+}
+
 async function readGreetingFromDatabase(database) {
   if (!database || typeof database.prepare !== "function") {
     console.error("HELLO_WORLD_DB binding is missing or invalid:", {
@@ -198,6 +213,8 @@ function renderSuccessHtml(
   requestUrl,
   releaseLabel,
   repositorySlug,
+  dbSourceLabel,
+  dbSourceVariant,
 ) {
   const safeMessage = escapeHtml(message);
   const safeNote = escapeHtml(note);
@@ -206,6 +223,7 @@ function renderSuccessHtml(
     typeof requestUrl === "string" && requestUrl.length > 0
       ? escapeHtml(requestUrl)
       : null;
+  const safeDbSourceLabel = dbSourceLabel ? escapeHtml(dbSourceLabel) : null;
   const warningHtml = warning
     ? `<p class="warning">${escapeHtml(warning)}</p>`
     : "";
@@ -217,6 +235,18 @@ function renderSuccessHtml(
           <dd><code>${safeRequestUrl}</code></dd>
         </dl>
       </section>`
+    : "";
+
+  const dbSourceClassSuffix =
+    dbSourceVariant === "production"
+      ? " db-source--production"
+      : dbSourceVariant === "preview"
+        ? " db-source--preview"
+        : dbSourceVariant === "unknown"
+          ? " db-source--unknown"
+          : "";
+  const dbSourceHtml = safeDbSourceLabel
+    ? `<p class="db-source${dbSourceClassSuffix}">${safeDbSourceLabel}</p>`
     : "";
 
   return `<!DOCTYPE html>
@@ -254,6 +284,30 @@ function renderSuccessHtml(
         margin: 0;
         color: #4b5563;
         font-size: 1.125rem;
+      }
+      .db-source {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 1.25rem;
+        padding: 0.4rem 0.85rem;
+        border-radius: 999px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .db-source--production {
+        background: rgba(16, 185, 129, 0.18);
+        color: #047857;
+      }
+      .db-source--preview {
+        background: rgba(59, 130, 246, 0.18);
+        color: #1d4ed8;
+      }
+      .db-source--unknown {
+        background: rgba(107, 114, 128, 0.2);
+        color: #374151;
       }
       .release {
         margin-top: 0.75rem;
@@ -342,6 +396,7 @@ function renderSuccessHtml(
   </head>
   <body>
     <main>
+      ${dbSourceHtml}
       <h1>${safeMessage}</h1>
       <p>${safeNote}</p>
       ${releaseHtml}
@@ -352,10 +407,29 @@ function renderSuccessHtml(
 </html>`;
 }
 
-function renderErrorHtml(error, siteTitle, releaseLabel, repositorySlug) {
+function renderErrorHtml(
+  error,
+  siteTitle,
+  releaseLabel,
+  repositorySlug,
+  dbSourceLabel,
+  dbSourceVariant,
+) {
   const reason = escapeHtml(error instanceof Error ? error.message : String(error));
   const safeSiteTitle = escapeHtml(siteTitle);
   const releaseHtml = buildReleaseSection(releaseLabel, repositorySlug);
+  const safeDbSourceLabel = dbSourceLabel ? escapeHtml(dbSourceLabel) : null;
+  const dbSourceClassSuffix =
+    dbSourceVariant === "production"
+      ? " db-source--production"
+      : dbSourceVariant === "preview"
+        ? " db-source--preview"
+        : dbSourceVariant === "unknown"
+          ? " db-source--unknown"
+          : "";
+  const dbSourceHtml = safeDbSourceLabel
+    ? `<p class="db-source${dbSourceClassSuffix}">${safeDbSourceLabel}</p>`
+    : "";
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -392,6 +466,32 @@ function renderErrorHtml(error, siteTitle, releaseLabel, repositorySlug) {
         margin: 0;
         color: #b91c1c;
         font-size: 1.125rem;
+      }
+      .db-source {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 1.25rem;
+        padding: 0.4rem 0.85rem;
+        border-radius: 999px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        background: rgba(248, 113, 113, 0.22);
+        color: #b91c1c;
+      }
+      .db-source--production {
+        background: rgba(16, 185, 129, 0.18);
+        color: #047857;
+      }
+      .db-source--preview {
+        background: rgba(59, 130, 246, 0.18);
+        color: #1d4ed8;
+      }
+      .db-source--unknown {
+        background: rgba(107, 114, 128, 0.2);
+        color: #374151;
       }
       .release {
         margin-top: 0.75rem;
@@ -438,6 +538,7 @@ function renderErrorHtml(error, siteTitle, releaseLabel, repositorySlug) {
   </head>
   <body>
     <main>
+      ${dbSourceHtml}
       <h1>${ERROR_TITLE}</h1>
       <p>The worker could not reach the D1 database.</p>
       ${releaseHtml}
@@ -452,6 +553,7 @@ export default {
     const siteTitle = env?.SITE_TITLE?.trim() || "Hello World";
     const siteRelease = env?.SITE_RELEASE?.trim() || DEFAULT_RELEASE;
     const repositorySlug = resolveRepositorySlug(env);
+    const { label: dbSourceLabel, variant: dbSourceVariant } = resolveDatabaseSource(env);
 
     try {
       const locationLabel = describeInfrastructureLocation(request);
@@ -464,6 +566,8 @@ export default {
         request?.url ?? null,
         siteRelease,
         repositorySlug,
+        dbSourceLabel,
+        dbSourceVariant,
       );
 
       return new Response(body, {
@@ -473,9 +577,16 @@ export default {
       });
     } catch (error) {
       console.error("Failed to read greeting from D1:", error);
-      const body = renderErrorHtml(error, siteTitle, siteRelease, repositorySlug);
+      const errorBody = renderErrorHtml(
+        error,
+        siteTitle,
+        siteRelease,
+        repositorySlug,
+        dbSourceLabel,
+        dbSourceVariant,
+      );
 
-      return new Response(body, {
+      return new Response(errorBody, {
         status: 500,
         headers: {
           "content-type": "text/html; charset=UTF-8",

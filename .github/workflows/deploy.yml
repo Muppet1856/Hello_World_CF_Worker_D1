@@ -223,11 +223,45 @@ jobs:
             echo "Error: CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID is not set." >&2
             exit 1
           fi
+          sanitize_boolean() {
+            local input="${1:-}"
+            input=$(echo "${input}" | tr '[:upper:]' '[:lower:]')
+            case "$input" in
+              true|t|yes|y|on|1)
+                echo "1"
+                return 0
+                ;;
+              false|f|no|n|off|0)
+                echo "0"
+                return 0
+                ;;
+              *)
+                return 1
+                ;;
+            esac
+          }
+
+          USE_PRODUCTION_DB_ON_PREVIEW_RAW="${{ vars.USE_PRODUCTION_DB_ON_PREVIEW }}"
+          if SANITIZED_FLAG=$(sanitize_boolean "${USE_PRODUCTION_DB_ON_PREVIEW_RAW}"); then
+            USE_PRODUCTION_DB_ON_PREVIEW_FLAG="${SANITIZED_FLAG}"
+          else
+            echo "Warning: Invalid boolean value for USE_PRODUCTION_DB_ON_PREVIEW ('${USE_PRODUCTION_DB_ON_PREVIEW_RAW}'); defaulting to false." >&2
+            USE_PRODUCTION_DB_ON_PREVIEW_FLAG="0"
+          fi
+
+          USING_PRODUCTION_DB_FLAG=0
+
           # Determines the database name based on deployment type.
           if [ -z "$DEPLOY_ENV" ]; then
             DB_NAME="${WORKER_NAME}"  # Production: uses worker name.
+            USING_PRODUCTION_DB_FLAG=1
           else
-            DB_NAME="${DEPLOY_ENV}-${WORKER_NAME}"  # Preview: uses pr-<number>-<WORKER_NAME>.
+            if [ "${USE_PRODUCTION_DB_ON_PREVIEW_FLAG}" -eq 1 ]; then
+              DB_NAME="${WORKER_NAME}"  # Preview with production DB reuse.
+              USING_PRODUCTION_DB_FLAG=1
+            else
+              DB_NAME="${DEPLOY_ENV}-${WORKER_NAME}"  # Preview: uses pr-<number>-<WORKER_NAME>.
+            fi
           fi
           BINDING_NAME=${{ vars.BINDING_NAME }}  # Binding name for D1 database access.
           if [ -z "$BINDING_NAME" ]; then
@@ -278,9 +312,19 @@ jobs:
             echo "D1 binding already present in wrangler.toml"
           fi
           # Exports database variables for later steps.
+          if [ "$USING_PRODUCTION_DB_FLAG" -eq 1 ]; then
+            DB_SOURCE_LABEL="production"
+            USING_PRODUCTION_DB_VALUE="true"
+          else
+            DB_SOURCE_LABEL="preview"
+            USING_PRODUCTION_DB_VALUE="false"
+          fi
+
           {
             echo "DB_NAME=$DB_NAME"
             echo "DB_ID=$DB_ID"
+            echo "USING_PRODUCTION_DB=$USING_PRODUCTION_DB_VALUE"
+            echo "DB_SOURCE_LABEL=$DB_SOURCE_LABEL"
           } >> $GITHUB_ENV
 
       - name: Apply D1 migrations
@@ -318,6 +362,8 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}  # Authenticates with Cloudflare.
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}  # Specifies the account for deployment.
+          vars: |
+            DB_SOURCE: ${{ env.DB_SOURCE_LABEL }}
 
       - name: Debug Variables
         if: github.event_name == 'pull_request' && github.event.action != 'closed'
@@ -375,6 +421,32 @@ jobs:
           PREVIEW_NAME="pr-${PR_NUMBER}-${{ vars.WORKER_NAME }}"  # e.g., pr-24-<WORKER_NAME>.
           PREVIEW_DB_NAME="${PREVIEW_NAME}"  # Matches the database name to the Worker name.
       
+          sanitize_boolean() {
+            local input="${1:-}"
+            input=$(echo "${input}" | tr '[:upper:]' '[:lower:]')
+            case "$input" in
+              true|t|yes|y|on|1)
+                echo "1"
+                return 0
+                ;;
+              false|f|no|n|off|0)
+                echo "0"
+                return 0
+                ;;
+              *)
+                return 1
+                ;;
+            esac
+          }
+
+          USE_PRODUCTION_DB_ON_PREVIEW_RAW="${{ vars.USE_PRODUCTION_DB_ON_PREVIEW }}"
+          if SANITIZED_FLAG=$(sanitize_boolean "${USE_PRODUCTION_DB_ON_PREVIEW_RAW}"); then
+            USE_PRODUCTION_DB_ON_PREVIEW_FLAG="${SANITIZED_FLAG}"
+          else
+            echo "Warning: Invalid boolean value for USE_PRODUCTION_DB_ON_PREVIEW ('${USE_PRODUCTION_DB_ON_PREVIEW_RAW}'); defaulting to false." >&2
+            USE_PRODUCTION_DB_ON_PREVIEW_FLAG="0"
+          fi
+
           # Verifies Cloudflare authentication via API.
           if curl -s -X GET "https://api.cloudflare.com/client/v4/user" \
             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
@@ -402,21 +474,25 @@ jobs:
               echo "Preview Worker $PREVIEW_NAME not found, skipping deletion"
             fi
       
-            # Checks for the preview D1 database via API.
-            D1_DBS=$(curl -s -X GET "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/d1/database" \
-              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-              -H "Content-Type: application/json")
-            if echo "$D1_DBS" | jq -e --arg name "$PREVIEW_DB_NAME" '.result[] | select(.name == $name)' > /dev/null 2>&1; then
-              echo "Deleting preview D1 database: $PREVIEW_DB_NAME"
-              npx wrangler d1 delete "$PREVIEW_DB_NAME" --yes
-              if [ $? -eq 0 ]; then
-                echo "Preview D1 database $PREVIEW_DB_NAME deleted"
-              else
-                echo "Failed to delete preview D1 database $PREVIEW_DB_NAME"
-                exit 1
-              fi
+            if [ "${USE_PRODUCTION_DB_ON_PREVIEW_FLAG}" -eq 1 ]; then
+              echo "Preview deployments reuse the production database; skipping database deletion"
             else
-              echo "Preview D1 database $PREVIEW_DB_NAME not found, skipping deletion"
+              # Checks for the preview D1 database via API.
+              D1_DBS=$(curl -s -X GET "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/d1/database" \
+                -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+                -H "Content-Type: application/json")
+              if echo "$D1_DBS" | jq -e --arg name "$PREVIEW_DB_NAME" '.result[] | select(.name == $name)' > /dev/null 2>&1; then
+                echo "Deleting preview D1 database: $PREVIEW_DB_NAME"
+                npx wrangler d1 delete "$PREVIEW_DB_NAME" --yes
+                if [ $? -eq 0 ]; then
+                  echo "Preview D1 database $PREVIEW_DB_NAME deleted"
+                else
+                  echo "Failed to delete preview D1 database $PREVIEW_DB_NAME"
+                  exit 1
+                fi
+              else
+                echo "Preview D1 database $PREVIEW_DB_NAME not found, skipping deletion"
+              fi
             fi
           else
             echo "Failed to authenticate with Cloudflare, skipping cleanup"
