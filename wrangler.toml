@@ -9,4 +9,4 @@ SITE_TITLE = "Hello World"
 [[d1_databases]]
 binding = "HELLO_WORLD_DB"
 database_name = "hello_world"
-database_id = "00000000-0000-0000-0000-000000000000" # Replace with your real database id
+database_id = "00000000-0000-0000-0000-000000000000"
