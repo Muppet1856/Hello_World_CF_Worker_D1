@@ -51,9 +51,9 @@ jobs:
           # Updates the package list and installs jq for processing JSON output from Wrangler and API calls.
           sudo apt update && sudo apt install -y jq
 
-			- name: Set DEPLOY variable
+			-	name: Set DEPLOY variable
         # Purpose: Determines the deployment mode (production or preview) based on the event and branch.
-        run: |
+				run: |
           sanitize() {
             local raw="$1"
             local lower=$(echo "$raw" | tr '[:upper:]' '[:lower:]')
@@ -63,7 +63,6 @@ jobs:
             fi
             echo "$cleaned"
           }
-
           # Logic for Pull Requests:
           # If the event is a pull request, sets DEPLOY to 'pr-<pr-number>' for preview mode (e.g., pr-24).
           if [ "${{ github.event_name }}" == "pull_request" ]; then
