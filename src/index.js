@@ -3,6 +3,7 @@ const FALLBACK_NOTE = "This greeting is served from a built-in fallback message.
 const FALLBACK_WARNING =
   "Create a D1 database and bind it as HELLO_WORLD_DB to serve content from D1.";
 const DEFAULT_GREETING = "Hello World";
+const DEFAULT_RELEASE = "v1.0.0";
 const ERROR_TITLE = "Database unavailable";
 
 function formatDatabaseNote(locationLabel) {
@@ -102,16 +103,20 @@ async function resolveGreeting(env, locationLabel) {
   }
 }
 
-function renderSuccessHtml(message, siteTitle, note, warning, requestUrl) {
+function renderSuccessHtml(message, siteTitle, note, warning, requestUrl, releaseLabel) {
   const safeMessage = escapeHtml(message);
   const safeNote = escapeHtml(note);
   const safeSiteTitle = escapeHtml(siteTitle);
+  const safeRelease = releaseLabel ? escapeHtml(releaseLabel) : null;
   const safeRequestUrl =
     typeof requestUrl === "string" && requestUrl.length > 0
       ? escapeHtml(requestUrl)
       : null;
   const warningHtml = warning
     ? `<p class="warning">${escapeHtml(warning)}</p>`
+    : "";
+  const releaseHtml = safeRelease
+    ? `<p class="release" aria-label="Application release">Release ${safeRelease}</p>`
     : "";
   const requestUrlHtml = safeRequestUrl
     ? `<section class="meta" aria-label="Request details">
@@ -157,6 +162,14 @@ function renderSuccessHtml(message, siteTitle, note, warning, requestUrl) {
         margin: 0;
         color: #4b5563;
         font-size: 1.125rem;
+      }
+      .release {
+        margin-top: 0.75rem;
+        font-size: 0.95rem;
+        font-weight: 600;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: #2563eb;
       }
       .meta {
         margin-top: 1.75rem;
@@ -215,6 +228,7 @@ function renderSuccessHtml(message, siteTitle, note, warning, requestUrl) {
     <main>
       <h1>${safeMessage}</h1>
       <p>${safeNote}</p>
+      ${releaseHtml}
       ${requestUrlHtml}
       ${warningHtml}
     </main>
@@ -222,9 +236,13 @@ function renderSuccessHtml(message, siteTitle, note, warning, requestUrl) {
 </html>`;
 }
 
-function renderErrorHtml(error, siteTitle) {
+function renderErrorHtml(error, siteTitle, releaseLabel) {
   const reason = escapeHtml(error instanceof Error ? error.message : String(error));
   const safeSiteTitle = escapeHtml(siteTitle);
+  const safeRelease = releaseLabel ? escapeHtml(releaseLabel) : null;
+  const releaseHtml = safeRelease
+    ? `<p class="release" aria-label="Application release">Release ${safeRelease}</p>`
+    : "";
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -262,6 +280,14 @@ function renderErrorHtml(error, siteTitle) {
         color: #b91c1c;
         font-size: 1.125rem;
       }
+      .release {
+        margin-top: 0.75rem;
+        font-size: 0.95rem;
+        font-weight: 600;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: #991b1b;
+      }
       code {
         display: inline-block;
         margin-top: 0.75rem;
@@ -277,6 +303,7 @@ function renderErrorHtml(error, siteTitle) {
     <main>
       <h1>${ERROR_TITLE}</h1>
       <p>The worker could not reach the D1 database.</p>
+      ${releaseHtml}
       <code>${reason}</code>
     </main>
   </body>
@@ -289,12 +316,14 @@ export default {
       const locationLabel = describeInfrastructureLocation(request);
       const { message, note, warning } = await resolveGreeting(env, locationLabel);
       const siteTitle = env?.SITE_TITLE?.trim() || "Hello World";
+      const siteRelease = env?.SITE_RELEASE?.trim() || DEFAULT_RELEASE;
       const body = renderSuccessHtml(
         message,
         siteTitle,
         note,
         warning,
         request?.url ?? null,
+        siteRelease,
       );
 
       return new Response(body, {
@@ -304,7 +333,8 @@ export default {
       });
     } catch (error) {
       console.error("Failed to read greeting from D1:", error);
-      const body = renderErrorHtml(error, env.SITE_TITLE);
+      const siteRelease = env?.SITE_RELEASE?.trim() || DEFAULT_RELEASE;
+      const body = renderErrorHtml(error, env.SITE_TITLE, siteRelease);
 
       return new Response(body, {
         status: 500,
