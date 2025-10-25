@@ -1,6 +1,6 @@
 # Cloudflare Workers Hello World with D1
 
-![Release badge](https://img.shields.io/github/v/release/cloudflare/Hello_World_CF_Worker_D1?display_name=tag&label=Release&sort=semver)
+![GitHub Release](https://img.shields.io/github/v/release/Muppet1856/Hello_World_CF_Worker_D1)
 
 This repository provides a minimal Cloudflare Worker that serves a friendly greeting from a D1 database when the binding is
 available and falls back to a built-in message otherwise. It is intended as a starting point for experiments that need a simple
