@@ -1,5 +1,7 @@
 # Cloudflare Workers Hello World with D1
 
+![Release badge](https://img.shields.io/github/v/release/cloudflare/Hello_World_CF_Worker_D1?display_name=tag&label=Release&sort=semver)
+
 This repository provides a minimal Cloudflare Worker that serves a friendly greeting from a D1 database when the binding is
 available and falls back to a built-in message otherwise. It is intended as a starting point for experiments that need a simple
 read-only query rather than a fully featured application.
@@ -33,6 +35,13 @@ Before running the worker locally or deploying it through CI, make sure you have
 
 Wrangler (and the automation in this repository) authenticate with Cloudflare using an API token that is scoped to your
 account. You will also need the numeric account id so Wrangler can address the correct account when creating the D1 database.
+
+## Release metadata
+
+- The current template release is **v1.0.0** and is displayed in the Worker response for quick verification.
+- The `SITE_RELEASE` variable defined in `wrangler.toml` (or injected via the Cloudflare dashboard) controls which release
+  string appears on the website. When you publish a GitHub release, set `SITE_RELEASE` to the Git tag (for example
+  `GITHUB_REF_NAME` within a GitHub Actions release workflow) so the worker, README badge above, and release page stay aligned.
 
 ### Create an API token
 
