@@ -33,6 +33,32 @@ Before running the worker locally or deploying it through CI, make sure you have
 - [Wrangler](https://developers.cloudflare.com/workers/wrangler/install-and-update/) 3.0 or newer installed locally (either
   globally via `npm install -g wrangler` or by running `npx wrangler ...` commands).
 - Node.js 18+ if you plan to execute the helper scripts in the `scripts/` directory.
+- A Cloudflare API token and account id so Wrangler can authenticate requests (see the next section).
+
+## Cloudflare credentials
+
+Wrangler (and the automation in this repository) authenticate with Cloudflare using an API token that is scoped to your
+account. You will also need the numeric account id so Wrangler can address the correct account when creating the D1 database.
+
+### Create an API token
+
+1. Visit **My Profile → API Tokens** in the Cloudflare dashboard and choose **Create Token**.
+2. Start from the **Edit Cloudflare Workers** template (or create a custom token) and ensure it has these permissions:
+   - **Account · Workers Scripts · Edit** – allows Wrangler to publish the worker.
+   - **Account · Workers Routes · Edit** – required when binding the worker to routes.
+   - **Account · D1 Databases · Edit** – allows Wrangler to provision the database and run migrations.
+3. Scope the token to the account that owns your worker, give it a descriptive name, and save it somewhere secure. You will only
+   be able to copy the value once.
+4. Store the token in the `CLOUDFLARE_API_TOKEN` environment variable locally (a `.env` file works well) and in the
+   `CLOUDFLARE_API_TOKEN` secret inside GitHub Actions.
+
+### Locate your account id
+
+1. Open the Cloudflare dashboard and copy the **Account ID** displayed on the **Overview** page for the account that owns your
+   worker.
+2. Alternatively, run `wrangler whoami --json` and copy the `account_id` property from the output.
+3. Store the id in the `CLOUDFLARE_ACCOUNT_ID` environment variable locally and in the `CLOUDFLARE_ACCOUNT_ID` secret inside GitHub
+   Actions so the helper scripts and CI workflow can authenticate API requests.
 
 ## Local development
 
