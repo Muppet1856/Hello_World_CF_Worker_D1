@@ -114,7 +114,13 @@ function renderSuccessHtml(message, siteTitle, note, warning, requestUrl) {
     ? `<p class="warning">${escapeHtml(warning)}</p>`
     : "";
   const requestUrlHtml = safeRequestUrl
-    ? `<p class="request-url">Request URL: <code>${safeRequestUrl}</code></p>`
+    ? `<section class="meta" aria-label="Request details">
+        <h2>Request details</h2>
+        <dl>
+          <dt>Request URL</dt>
+          <dd><code>${safeRequestUrl}</code></dd>
+        </dl>
+      </section>`
     : "";
 
   return `<!DOCTYPE html>
@@ -153,17 +159,46 @@ function renderSuccessHtml(message, siteTitle, note, warning, requestUrl) {
         color: #4b5563;
         font-size: 1.125rem;
       }
-      .request-url {
-        margin-top: 1.5rem;
+      .meta {
+        margin-top: 1.75rem;
+        padding: 1.25rem 1.5rem;
+        border-radius: 1rem;
+        background: rgba(148, 163, 184, 0.15);
+        text-align: left;
+      }
+      .meta h2 {
+        margin: 0 0 0.75rem;
+        font-size: 1rem;
+        font-weight: 600;
+        color: #374151;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+      .meta dl {
+        margin: 0;
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        column-gap: 1rem;
+        row-gap: 0.5rem;
+        align-items: start;
+      }
+      .meta dt {
         font-size: 0.95rem;
-        color: #6b7280;
+        font-weight: 600;
+        color: #4b5563;
+      }
+      .meta dd {
+        margin: 0;
+        font-size: 0.95rem;
+        color: #1f2937;
         word-break: break-word;
       }
       code {
+        display: inline-block;
         padding: 0.15rem 0.35rem;
         border-radius: 0.35rem;
-        background: rgba(148, 163, 184, 0.25);
-        color: #1f2937;
+        background: rgba(15, 23, 42, 0.08);
+        color: #111827;
         font-size: 0.95rem;
       }
       .warning {
