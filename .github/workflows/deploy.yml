@@ -54,14 +54,26 @@ jobs:
       - name: Set DEPLOY variable
         # Purpose: Determines the deployment mode (production or preview) based on the event and branch.
         run: |
+          sanitize() {
+            local raw="$1"
+            local lower=$(echo "$raw" | tr '[:upper:]' '[:lower:]')
+            local cleaned=$(echo "$lower" | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-//' | sed 's/-$//')
+            if [ -z "$cleaned" ]; then
+              cleaned="preview"
+            fi
+            echo "$cleaned"
+          }
+
           # Logic for Pull Requests:
           # If the event is a pull request, sets DEPLOY to 'pr-<pr-number>' for preview mode (e.g., pr-24).
           if [ "${{ github.event_name }}" == "pull_request" ]; then
-            echo "DEPLOY=pr-${{ github.event.pull_request.number }}" >> $GITHUB_ENV
+            RAW_DEPLOY="pr-${{ github.event.pull_request.number }}"
+            echo "DEPLOY=$(sanitize "$RAW_DEPLOY")" >> $GITHUB_ENV
           # Logic for Non-Main Branch Pushes:
-          # For pushes to branches other than main, sets DEPLOY to the branch name (e.g., feature-branch).
+          # For pushes to branches other than main, sets DEPLOY to the branch name (e.g., feature-branch) and sanitizes it.
           elif [ "${{ github.ref_name }}" != "main" ]; then
-            echo "DEPLOY=${{ github.ref_name }}" >> $GITHUB_ENV
+            RAW_DEPLOY="${{ github.ref_name }}"
+            echo "DEPLOY=$(sanitize "$RAW_DEPLOY")" >> $GITHUB_ENV
           # Logic for Main Branch Pushes:
           # For pushes to main, sets DEPLOY to an empty string to indicate production mode.
           elif [ "${{ github.ref_name }}" == "main" ]; then
