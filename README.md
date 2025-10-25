@@ -15,10 +15,6 @@ projects.
 ├── .github/workflows/deploy.yml   # CI workflow for preview + production deployments
 ├── migrations/                    # SQL migrations for the D1 database
 │   └── 0001_create_greetings.sql
-├── scripts/                       # Helper scripts for provisioning and configuration
-│   ├── ensure-db.mjs
-│   ├── get-db-id.mjs
-│   └── set-db-id.mjs
 ├── src/
 │   ├── README.md
 │   └── index.js                   # Worker script that reads from D1 with a fallback message
