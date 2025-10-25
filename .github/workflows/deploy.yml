@@ -98,7 +98,19 @@ jobs:
             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
             -H "Content-Type: application/json")
           echo "API Response (Domains): $API_RESPONSE"
-          DOMAIN=$(echo "$API_RESPONSE" | jq -r '.result[0].hostname' 2>/dev/null || true)
+          # Check if result array is empty
+          RESULT_COUNT=$(echo "$API_RESPONSE" | jq '.result | length')
+          if [ "$RESULT_COUNT" -eq 0 ]; then
+            echo "No domains found for the account."
+            DOMAIN=""
+          else
+            DOMAIN=$(echo "$API_RESPONSE" | jq -r '.result[0].hostname')
+            if [ -z "$DOMAIN" ]; then
+              echo "Failed to extract hostname."
+            else
+              echo "Extracted Domain: $DOMAIN"
+            fi
+          fi
           if [ -n "$DOMAIN" ]; then
             # Custom domain found, use it for routing.
             echo "[[routes]]" >> wrangler.toml
