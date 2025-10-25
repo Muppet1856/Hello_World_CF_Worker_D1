@@ -1,4 +1,3 @@
--- Delete this file when forking this repo.
 -- Create the greetings table to store hello world messages.
 CREATE TABLE IF NOT EXISTS greetings (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

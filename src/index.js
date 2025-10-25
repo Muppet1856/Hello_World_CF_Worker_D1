@@ -1,4 +1,4 @@
-// Delete this file when forking this repo.
+// Example worker that reads a greeting from D1 with a graceful fallback.
 const FALLBACK_NOTE = "This greeting is served from a built-in fallback message.";
 const FALLBACK_WARNING =
   "Create a D1 database and bind it as HELLO_WORLD_DB to serve content from D1.";
