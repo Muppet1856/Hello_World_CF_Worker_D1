@@ -56,35 +56,6 @@ account. You will also need the numeric account id so Wrangler can address the c
 3. Store the id in the `CLOUDFLARE_ACCOUNT_ID` environment variable locally and in the `CLOUDFLARE_ACCOUNT_ID` secret inside GitHub
    Actions so the helper scripts and CI workflow can authenticate API requests.
 
-## Local development
-
-1. **Review `wrangler.toml`.** The committed file contains a minimal configuration, including a placeholder D1 binding. Update the
-   `name`, `compatibility_date`, and `SITE_TITLE` values if needed. Leave the `database_id` placeholder in place—the helper script
-   will replace it once the real database exists.
-2. **Create (or reuse) a D1 database.** Run the provisioning helper to create a database named `hello_world`, write its id back to
-   `wrangler.toml`, and apply the SQL migrations:
-
-   ```bash
-   node scripts/ensure-db.mjs
-   ```
-
-   Pass a different database name or Wrangler config by appending arguments, e.g.
-
-   ```bash
-   node scripts/ensure-db.mjs my_database --wrangler=./wrangler.toml
-   ```
-
-   The command requires Wrangler to be authenticated (run `wrangler login` or set the `CLOUDFLARE_API_TOKEN` and
-   `CLOUDFLARE_ACCOUNT_ID` environment variables beforehand).
-3. **Run the worker locally.** Once the database id has been written to `wrangler.toml`, start the development server:
-
-   ```bash
-   wrangler dev
-   ```
-
-   The worker renders the greeting from D1. If the binding is not available it gracefully falls back to the built-in message and
-   surfaces a warning on the page.
-
 ## GitHub Actions workflow
 
 The `.github/workflows/deploy.yml` file demonstrates how to:
