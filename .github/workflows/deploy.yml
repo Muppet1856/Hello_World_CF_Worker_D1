@@ -366,7 +366,7 @@ jobs:
           sudo apt update && sudo apt install -y jq
 
       - name: Delete Preview Worker and D1 Database
-        # Purpose: Deletes the preview Worker and its associated D1 database.
+        # Purpose: Lists Workers and D1 databases via Cloudflare API, deletes using Wrangler.
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -374,23 +374,47 @@ jobs:
           PR_NUMBER=${{ github.event.pull_request.number }}  # Gets the PR number.
           PREVIEW_NAME="pr-${PR_NUMBER}-${{ vars.WORKER_NAME }}"  # e.g., pr-24-<WORKER_NAME>.
           PREVIEW_DB_NAME="${PREVIEW_NAME}"  # Matches the database name to the Worker name.
-          # Verifies Cloudflare authentication.
-          if npx wrangler whoami --json | jq -e '.success' > /dev/null 2>&1; then
-            # Checks for the preview Worker.
-            WORKERS=$(npx wrangler workers list --json)
-            if echo "$WORKERS" | jq -e --arg name "$PREVIEW_NAME" '.workers[] | select(.name == $name)' > /dev/null 2>&1; then
+      
+          # Verifies Cloudflare authentication via API.
+          if curl -s -X GET "https://api.cloudflare.com/client/v4/user" \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            -H "Content-Type: application/json" | jq -e '.success' > /dev/null 2>&1; then
+            echo "Cloudflare authentication successful"
+      
+            # Set up Wrangler configuration for deletions.
+            export CLOUDFLARE_API_TOKEN="$CLOUDFLARE_API_TOKEN"
+            export CLOUDFLARE_ACCOUNT_ID="$CLOUDFLARE_ACCOUNT_ID"
+      
+            # Checks for the preview Worker via API.
+            WORKERS=$(curl -s -X GET "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts" \
+              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              -H "Content-Type: application/json")
+            if echo "$WORKERS" | jq -e --arg name "$PREVIEW_NAME" '.result[] | select(.id == $name)' > /dev/null 2>&1; then
               echo "Deleting preview Worker: $PREVIEW_NAME"
-              npx wrangler workers delete "$PREVIEW_NAME" --yes  # Deletes without prompt.
-              echo "Preview Worker $PREVIEW_NAME deleted"
+              npx wrangler delete "$PREVIEW_NAME" --yes
+              if [ $? -eq 0 ]; then
+                echo "Preview Worker $PREVIEW_NAME deleted"
+              else
+                echo "Failed to delete preview Worker $PREVIEW_NAME"
+                exit 1
+              fi
             else
               echo "Preview Worker $PREVIEW_NAME not found, skipping deletion"
             fi
-            # Checks for the preview D1 database.
-            D1_DBS=$(npx wrangler d1 list --json)
-            if echo "$D1_DBS" | jq -e --arg name "$PREVIEW_DB_NAME" '.[] | select(.name == $name)' > /dev/null 2>&1; then
+      
+            # Checks for the preview D1 database via API.
+            D1_DBS=$(curl -s -X GET "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/d1/database" \
+              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              -H "Content-Type: application/json")
+            if echo "$D1_DBS" | jq -e --arg name "$PREVIEW_DB_NAME" '.result[] | select(.name == $name)' > /dev/null 2>&1; then
               echo "Deleting preview D1 database: $PREVIEW_DB_NAME"
               npx wrangler d1 delete "$PREVIEW_DB_NAME" --yes
-              echo "Preview D1 database $PREVIEW_DB_NAME deleted"
+              if [ $? -eq 0 ]; then
+                echo "Preview D1 database $PREVIEW_DB_NAME deleted"
+              else
+                echo "Failed to delete preview D1 database $PREVIEW_DB_NAME"
+                exit 1
+              fi
             else
               echo "Preview D1 database $PREVIEW_DB_NAME not found, skipping deletion"
             fi
