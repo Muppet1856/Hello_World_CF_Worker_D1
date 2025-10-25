@@ -107,7 +107,7 @@ jobs:
           fi
           if [ "$DOMAIN" = "workers.dev" ]; then
             # Fetches the workers.dev subdomain using the Cloudflare API.
-            API_RESPONSE=$(curl -s -X GET "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/workers/domains" \
+            API_RESPONSE=$(curl -s -X GET "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/workers/subdomain" \
               -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
               -H "Content-Type: application/json")
             echo "API Response (Production): $API_RESPONSE"
