@@ -28,6 +28,9 @@ jobs:
     # Job Configuration:
     # This job handles the deployment process for both production and preview environments.
     runs-on: ubuntu-latest  # Uses the latest Ubuntu runner for consistency and compatibility with required tools.
+    permissions:
+      issues: write
+      pull-requests: write
     steps:
       - name: Checkout repository
         # Purpose: Clones the repository to access the Worker code, configuration, and migration files.
