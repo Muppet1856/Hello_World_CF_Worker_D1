@@ -4,9 +4,8 @@ This repository provides a minimal Cloudflare Worker that serves a friendly gree
 available and falls back to a built-in message otherwise. It is intended as a starting point for experiments that need a simple
 read-only query rather than a fully featured application.
 
-The repo also includes utility scripts and a GitHub Actions workflow that can provision the D1 database, apply migrations, and
-deploy preview environments automatically. You can adopt as much or as little of that automation as you need for your own
-projects.
+The repo also includes a GitHub Actions workflow that can provision the D1 database, apply migrations, and deploy preview
+environments automatically. You can adopt as much or as little of that automation as you need for your own projects.
 
 ## Project structure
 
@@ -28,7 +27,6 @@ Before running the worker locally or deploying it through CI, make sure you have
 - A [Cloudflare account](https://dash.cloudflare.com/) with access to the Workers and D1 beta features.
 - [Wrangler](https://developers.cloudflare.com/workers/wrangler/install-and-update/) 3.0 or newer installed locally (either
   globally via `npm install -g wrangler` or by running `npx wrangler ...` commands).
-- Node.js 18+ if you plan to execute the helper scripts in the `scripts/` directory.
 - A Cloudflare API token and account id so Wrangler can authenticate requests (see the next section).
 
 ## Cloudflare credentials
@@ -53,8 +51,8 @@ account. You will also need the numeric account id so Wrangler can address the c
 1. Open the Cloudflare dashboard and copy the **Account ID** displayed on the **Overview** page for the account that owns your
    worker.
 2. Alternatively, run `wrangler whoami --json` and copy the `account_id` property from the output.
-3. Store the id in the `CLOUDFLARE_ACCOUNT_ID` environment variable locally and in the `CLOUDFLARE_ACCOUNT_ID` secret inside GitHub
-   Actions so the helper scripts and CI workflow can authenticate API requests.
+3. Store the id in the `CLOUDFLARE_ACCOUNT_ID` environment variable locally and add it as the
+   `CLOUDFLARE_ACCOUNT_ID` secret in GitHub Actions so the workflow can authenticate API requests.
 
 ## GitHub Actions workflow
 
@@ -93,7 +91,7 @@ Feel free to trim the workflow down to the pieces that match your release proces
 
 ## Troubleshooting tips
 
-- If `node scripts/ensure-db.mjs` cannot find a `database_id` entry to replace, double-check that your `wrangler.toml` file
-  includes the placeholder binding from the committed template.
+- If the deploy workflow cannot find a `database_id` entry to replace, double-check that your `wrangler.toml` file includes the
+  placeholder binding from the committed template.
 - When using the GitHub Actions workflow, confirm that the `WORKER_NAME` and `BINDING_NAME` variables exist; the job will fail
   early if they are missing to make misconfiguration obvious.
