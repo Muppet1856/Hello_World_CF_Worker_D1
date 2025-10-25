@@ -102,12 +102,19 @@ async function resolveGreeting(env, locationLabel) {
   }
 }
 
-function renderSuccessHtml(message, siteTitle, note, warning) {
+function renderSuccessHtml(message, siteTitle, note, warning, requestUrl) {
   const safeMessage = escapeHtml(message);
   const safeNote = escapeHtml(note);
   const safeSiteTitle = escapeHtml(siteTitle);
+  const safeRequestUrl =
+    typeof requestUrl === "string" && requestUrl.length > 0
+      ? escapeHtml(requestUrl)
+      : null;
   const warningHtml = warning
     ? `<p class="warning">${escapeHtml(warning)}</p>`
+    : "";
+  const requestUrlHtml = safeRequestUrl
+    ? `<p class="request-url">Request URL: <code>${safeRequestUrl}</code></p>`
     : "";
 
   return `<!DOCTYPE html>
@@ -146,6 +153,19 @@ function renderSuccessHtml(message, siteTitle, note, warning) {
         color: #4b5563;
         font-size: 1.125rem;
       }
+      .request-url {
+        margin-top: 1.5rem;
+        font-size: 0.95rem;
+        color: #6b7280;
+        word-break: break-word;
+      }
+      code {
+        padding: 0.15rem 0.35rem;
+        border-radius: 0.35rem;
+        background: rgba(148, 163, 184, 0.25);
+        color: #1f2937;
+        font-size: 0.95rem;
+      }
       .warning {
         margin-top: 1rem;
         padding: 0.75rem 1rem;
@@ -161,6 +181,7 @@ function renderSuccessHtml(message, siteTitle, note, warning) {
     <main>
       <h1>${safeMessage}</h1>
       <p>${safeNote}</p>
+      ${requestUrlHtml}
       ${warningHtml}
     </main>
   </body>
@@ -234,7 +255,13 @@ export default {
       const locationLabel = describeInfrastructureLocation(request);
       const { message, note, warning } = await resolveGreeting(env, locationLabel);
       const siteTitle = env?.SITE_TITLE?.trim() || "Hello World";
-      const body = renderSuccessHtml(message, siteTitle, note, warning);
+      const body = renderSuccessHtml(
+        message,
+        siteTitle,
+        note,
+        warning,
+        request?.url ?? null,
+      );
 
       return new Response(body, {
         headers: {
