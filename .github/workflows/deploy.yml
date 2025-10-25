@@ -294,6 +294,14 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}  # Authenticates with Cloudflare.
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}  # Specifies the account for deployment.
 
+      - name: Debug Variables
+        if: github.event_name == 'pull_request' && github.event.action != 'closed'
+        run: |
+          echo "WORKER_URL: ${{ env.WORKER_URL }}"
+          echo "PR Number: ${{ github.event.pull_request.number }}"
+          echo "Event Name: ${{ github.event_name }}"
+          echo "Event Action: ${{ github.event.action }}"
+
       - name: Comment Preview URL on PR
         # Purpose: Posts the preview Worker URL as a comment on the PR.
         if: github.event_name == 'pull_request' && github.event.action != 'closed'  # Only runs for non-closed PRs.
