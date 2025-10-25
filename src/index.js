@@ -115,7 +115,6 @@ function renderSuccessHtml(message, siteTitle, note, warning, requestUrl) {
     : "";
   const requestUrlHtml = safeRequestUrl
     ? `<section class="meta" aria-label="Request details">
-        <h2>Request details</h2>
         <dl>
           <dt>Request URL</dt>
           <dd><code>${safeRequestUrl}</code></dd>
