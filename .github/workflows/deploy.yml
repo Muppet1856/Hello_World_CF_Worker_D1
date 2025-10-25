@@ -51,7 +51,13 @@ jobs:
           # Updates the package list and installs jq for processing JSON output from Wrangler and API calls.
           sudo apt update && sudo apt install -y jq
 
-      - name: Set DEPLOY variable
+      - name: Setup Cloudflare environment
+				#Purpose: Sets up the cloudflare environmental variables
+				env:
+					CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+					CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+			- name: Set DEPLOY variable
         # Purpose: Determines the deployment mode (production or preview) based on the event and branch.
         run: |
           sanitize() {
@@ -68,11 +74,6 @@ jobs:
           # If the event is a pull request, sets DEPLOY to 'pr-<pr-number>' for preview mode (e.g., pr-24).
           if [ "${{ github.event_name }}" == "pull_request" ]; then
             RAW_DEPLOY="pr-${{ github.event.pull_request.number }}"
-            echo "DEPLOY=$(sanitize "$RAW_DEPLOY")" >> $GITHUB_ENV
-          # Logic for Non-Main Branch Pushes:
-          # For pushes to branches other than main, sets DEPLOY to the branch name (e.g., feature-branch) and sanitizes it.
-          elif [ "${{ github.ref_name }}" != "main" ]; then
-            RAW_DEPLOY="${{ github.ref_name }}"
             echo "DEPLOY=$(sanitize "$RAW_DEPLOY")" >> $GITHUB_ENV
           # Logic for Main Branch Pushes:
           # For pushes to main, sets DEPLOY to an empty string to indicate production mode.
@@ -95,40 +96,46 @@ jobs:
           fi
           echo "name = \"$WORKER_NAME\"" > wrangler.toml
           echo "main = \"src/index.js\"" >> wrangler.toml
-          echo "compatibility_date = \"2025-10-24\"" >> wrangler.toml
-          DOMAIN=${{ vars.DOMAIN }}
-          if [ -z "$DOMAIN" ]; then
+          echo "compatibility_date = \"2025-10-25\"" >> wrangler.toml
+					# Check for custom domain via workers/domains endpoint.
+          API_RESPONSE=$(curl -s -X GET "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/domains" \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            -H "Content-Type: application/json")
+          echo "API Response (Domains): $API_RESPONSE"
+          DOMAIN=$(echo "$API_RESPONSE" | jq -r '.result[0].hostname' 2>/dev/null || true)
+          if [ -n "$DOMAIN" ]; then
+            # Custom domain found, use it for routing.
+            echo "[[routes]]" >> wrangler.toml
+            echo "pattern = \"${DOMAIN}/*\"" >> wrangler.toml
+            echo "zone_name = \"${DOMAIN}\"" >> wrangler.toml
+            echo "WORKER_URL=${DOMAIN}" >> $GITHUB_ENV
+          else
+            # No custom domain, default to workers.dev and fetch subdomain.
             DOMAIN="workers.dev"
           fi
-          if [ "$DOMAIN" = "workers.dev" ]; then
-            API_RESPONSE=$(curl -s -X GET "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/workers/subdomain" \
-              -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
-              -H "Content-Type: application/json")
-            echo "API Response (Production): $API_RESPONSE"
-            SUBDOMAIN=$(echo "$API_RESPONSE" | jq -r '.result.subdomain' 2>/dev/null || true)
-            if [ -z "$SUBDOMAIN" ]; then
-              echo "Error: Could not fetch workers.dev subdomain via API. Please ensure the subdomain is enabled in the Cloudflare dashboard." >&2
-              exit 1
-            fi
-            echo "WORKER_URL=${WORKER_NAME}.${SUBDOMAIN}.workers.dev" >> $GITHUB_ENV
-          else
-            echo "WORKER_URL=${WORKER_NAME}.${DOMAIN}" >> $GITHUB_ENV
-          fi
+					if [ "$DOMAIN" = "workers.dev" ]; then
+						API_RESPONSE=$(curl -s -X GET "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/workers/subdomain" \
+							-H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
+							-H "Content-Type: application/json")
+						echo "API Response (Production): $API_RESPONSE"
+						SUBDOMAIN=$(echo "$API_RESPONSE" | jq -r '.result.subdomain' 2>/dev/null || true)
+						if [ -z "$SUBDOMAIN" ]; then
+							echo "Error: Could not fetch workers.dev subdomain via API. Please ensure the subdomain is enabled in the Cloudflare dashboard." >&2
+							exit 1
+						fi
+						echo "WORKER_URL=${WORKER_NAME}.${SUBDOMAIN}.workers.dev" >> $GITHUB_ENV
+					elif [ "$DOMAIN" != "workers.dev" ] && [ -n "$DOMAIN" ]; then
+						echo "WORKER_URL=${WORKER_NAME}.${DOMAIN}" >> $GITHUB_ENV
+					else
+					  echo "Error: No Domain set, there is an error in the domain retreival logic." >&2
+            exit 1
+					fi
 
       - name: Setup worker (Preview Deployment)
         if: env.DEPLOY != ''  # Only runs for preview deployments (when DEPLOY is set).
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          # Retrieves the worker name and deployment environment.
-          WORKER_NAME=${{ vars.WORKER_NAME }}
+          # Retrieves the deployment environment.
           DEPLOY_ENV=${{ env.DEPLOY }}
-          # Validates that WORKER_NAME is set.
-          if [ -z "$WORKER_NAME" ]; then
-            echo "Error: WORKER_NAME is not set. Please define it in GitHub repository variables." >&2
-            exit 1
-          fi
           # Generates wrangler.toml for the preview Worker.
           echo "name = \"${DEPLOY_ENV}-${WORKER_NAME}\"" > wrangler.toml
           echo "main = \"src/index.js\"" >> wrangler.toml
@@ -145,8 +152,6 @@ jobs:
             echo "pattern = \"${DEPLOY_ENV}.preview.${CUSTOM_DOMAIN}/*\"" >> wrangler.toml
             echo "zone_name = \"${CUSTOM_DOMAIN}\"" >> wrangler.toml
             echo "WORKER_URL=${DEPLOY_ENV}.preview.${CUSTOM_DOMAIN}" >> $GITHUB_ENV
-            echo "========="
-            echo "WORKER_URL=${DEPLOY_ENV}.preview.${CUSTOM_DOMAIN}"
           else
             # No custom domain, default to workers.dev and fetch subdomain.
             DOMAIN="workers.dev"
@@ -160,8 +165,6 @@ jobs:
               exit 1
             fi
             echo "WORKER_URL=${DEPLOY_ENV}-${WORKER_NAME}.${SUBDOMAIN}.workers.dev" >> $GITHUB_ENV
-            echo "==================="
-            echo "WORKER_URL=${DEPLOY_ENV}-${WORKER_NAME}.${SUBDOMAIN}.workers.dev"
           fi
 
       - name: Verify src/index.js exists
