@@ -86,42 +86,28 @@ jobs:
           fi
 
       - name: Setup worker (Main Deployment)
-        # Purpose: Configures the Worker for production deployment (main branch only).
         if: env.DEPLOY == ''  # Only runs for production deployments (when DEPLOY is empty).
         run: |
-          # Retrieves the worker name from GitHub repository variables (set via GitHub settings).
           WORKER_NAME=${{ vars.WORKER_NAME }}
-          # Validates that WORKER_NAME is set to prevent deployment failures due to missing configuration.
           if [ -z "$WORKER_NAME" ]; then
             echo "Error: WORKER_NAME is not set. Please define it in GitHub repository variables." >&2
             exit 1
           fi
-          # Generates wrangler.toml for the production Worker.
-          echo "name = \"$WORKER_NAME\"" > wrangler.toml  # Sets the Worker name.
-          echo "main = \"src/index.js\"" >> wrangler.toml  # Specifies the entry script for the Worker.
-          echo "compatibility_date = \"2025-10-24\"" >> wrangler.toml  # Ensures compatibility with Cloudflare's runtime.
-          # Determines the Worker URL for production.
-          DOMAIN=${{ vars.DOMAIN }}  # Retrieves custom domain from repository variables, if set.
+          echo "name = \"$WORKER_NAME\"" > wrangler.toml
+          echo "main = \"src/index.js\"" >> wrangler.toml
+          echo "compatibility_date = \"2025-10-24\"" >> wrangler.toml
+          DOMAIN=${{ vars.DOMAIN }}
           if [ -z "$DOMAIN" ]; then
-            DOMAIN="workers.dev"  # Defaults to workers.dev if no custom domain is provided.
+            DOMAIN="workers.dev"
           fi
           if [ "$DOMAIN" = "workers.dev" ]; then
-            # Fetches the workers.dev subdomain using the Cloudflare API.
             API_RESPONSE=$(curl -s -X GET "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/workers/subdomain" \
               -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
               -H "Content-Type: application/json")
             echo "API Response (Production): $API_RESPONSE"
-            SUBDOMAIN=$(echo "$API_RESPONSE" | jq -r '.result[0].hostname | split(".")[0]' 2>/dev/null || true)
+            SUBDOMAIN=$(echo "$API_RESPONSE" | jq -r '.result.subdomain' 2>/dev/null || true)
             if [ -z "$SUBDOMAIN" ]; then
-              echo "Warning: Could not fetch workers.dev subdomain via API. Falling back to email-derived subdomain." >&2
-              # Fallback using account email (assumes email format like user@domain.com, uses domain part)
-              EMAIL=$(curl -s -X GET "https://api.cloudflare.com/client/v4/user" \
-                -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
-                -H "Content-Type: application/json" | jq -r '.result.email' 2>/dev/null || true)
-              SUBDOMAIN=$(echo "$EMAIL" | grep -oP '(?<=@)[^.]+' || echo "default")
-            fi
-            if [ -z "$SUBDOMAIN" ]; then
-              echo "Error: Could not determine workers.dev subdomain. Please enable it in the Cloudflare dashboard." >&2
+              echo "Error: Could not fetch workers.dev subdomain via API. Please ensure the subdomain is enabled in the Cloudflare dashboard." >&2
               exit 1
             fi
             echo "WORKER_URL=${WORKER_NAME}.${SUBDOMAIN}.workers.dev" >> $GITHUB_ENV
@@ -130,57 +116,50 @@ jobs:
           fi
 
       - name: Setup worker (Preview Deployment)
-        # Purpose: Configures the Worker for preview deployments (non-main branches or PRs).
         if: env.DEPLOY != ''  # Only runs for preview deployments (when DEPLOY is set).
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}  # Cloudflare API token for authentication.
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}  # Cloudflare account ID for API calls.
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           # Retrieves the worker name and deployment environment.
-          WORKER_NAME=${{ vars.WORKER_NAME }}  # From repository variables.
-          DEPLOY_ENV=${{ env.DEPLOY }}  # e.g., pr-24 or feature-branch.
+          WORKER_NAME=${{ vars.WORKER_NAME }}
+          DEPLOY_ENV=${{ env.DEPLOY }}
           # Validates that WORKER_NAME is set.
           if [ -z "$WORKER_NAME" ]; then
             echo "Error: WORKER_NAME is not set. Please define it in GitHub repository variables." >&2
             exit 1
           fi
-          # Defaults to workers.dev if no custom domain is provided.
-          DOMAIN=${{ vars.DOMAIN }}
-          if [ -z "$DOMAIN" ]; then
-            DOMAIN="workers.dev"
-          fi
-          # Generates wrangler.toml for the preview Worker with the desired name format.
-          echo "name = \"${DEPLOY_ENV}-${WORKER_NAME}\"" > wrangler.toml  # e.g., pr-24-<WORKER_NAME>.
-          echo "main = \"src/index.js\"" >> wrangler.toml  # Specifies the entry script.
-          echo "compatibility_date = \"2025-10-24\"" >> wrangler.toml  # Ensures compatibility.
-          # Conditionally adds routes for custom domains only (avoids workers.dev routing error).
-          if [ "$DOMAIN" != "workers.dev" ]; then
-            echo "[[routes]]" >> wrangler.toml  # Adds custom route for preview.
-            echo "pattern = \"${DEPLOY_ENV}.preview.${DOMAIN}/*\"" >> wrangler.toml  # e.g., pr-24.preview.example.com/*.
-            echo "zone_name = \"${DOMAIN}\"" >> wrangler.toml  # Specifies the custom domain.
-            echo "WORKER_URL=${DEPLOY_ENV}.preview.${DOMAIN}" >> $GITHUB_ENV  # Sets custom domain URL.
+          # Generates wrangler.toml for the preview Worker.
+          echo "name = \"${DEPLOY_ENV}-${WORKER_NAME}\"" > wrangler.toml
+          echo "main = \"src/index.js\"" >> wrangler.toml
+          echo "compatibility_date = \"2025-10-24\"" >> wrangler.toml
+          # Check for custom domain via workers/domains endpoint.
+          API_RESPONSE=$(curl -s -X GET "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/domains" \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            -H "Content-Type: application/json")
+          echo "API Response (Domains): $API_RESPONSE"
+          CUSTOM_DOMAIN=$(echo "$API_RESPONSE" | jq -r '.result[0].hostname' 2>/dev/null || true)
+          if [ -n "$CUSTOM_DOMAIN" ]; then
+            # Custom domain found, use it for routing.
+            echo "[[routes]]" >> wrangler.toml
+            echo "pattern = \"${DEPLOY_ENV}.preview.${CUSTOM_DOMAIN}/*\"" >> wrangler.toml
+            echo "zone_name = \"${CUSTOM_DOMAIN}\"" >> wrangler.toml
+            echo "WORKER_URL=${DEPLOY_ENV}.preview.${CUSTOM_DOMAIN}" >> $GITHUB_ENV
             echo "========="
-            echo "WORKER_URL=${DEPLOY_ENV}.preview.${DOMAIN}"
+            echo "WORKER_URL=${DEPLOY_ENV}.preview.${CUSTOM_DOMAIN}"
           else
-            # Debug the API response to diagnose the issue
-            API_RESPONSE=$(curl -s -X GET "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/domains" \
+            # No custom domain, default to workers.dev and fetch subdomain.
+            DOMAIN="workers.dev"
+            SUBDOMAIN_API_RESPONSE=$(curl -s -X GET "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" \
               -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
               -H "Content-Type: application/json")
-            echo "API Response (Preview): $API_RESPONSE"
-            SUBDOMAIN=$(echo "$API_RESPONSE" | jq -r '.result[0].hostname | split(".")[0]' 2>/dev/null || true)
+            echo "API Response (Subdomain): $SUBDOMAIN_API_RESPONSE"
+            SUBDOMAIN=$(echo "$SUBDOMAIN_API_RESPONSE" | jq -r '.result.subdomain' 2>/dev/null || true)
             if [ -z "$SUBDOMAIN" ]; then
-              echo "Warning: Could not fetch workers.dev subdomain via API. Falling back to email-derived subdomain." >&2
-              # Fallback using account email (assumes email format like user@domain.com, uses domain part)
-              EMAIL=$(curl -s -X GET "https://api.cloudflare.com/client/v4/user" \
-                -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-                -H "Content-Type: application/json" | jq -r '.result.email' 2>/dev/null || true)
-              SUBDOMAIN=$(echo "$EMAIL" | grep -oP '(?<=@)[^.]+' || echo "default")
-            fi
-            if [ -z "$SUBDOMAIN" ]; then
-              echo "Error: Could not determine workers.dev subdomain. Please enable it in the Cloudflare dashboard or check account configuration." >&2
+              echo "Error: Could not fetch workers.dev subdomain via API. Please ensure the subdomain is enabled in the Cloudflare dashboard." >&2
               exit 1
             fi
-            echo "WORKER_URL=${DEPLOY_ENV}-${WORKER_NAME}.${SUBDOMAIN}.workers.dev" >> $GITHUB_ENV  # e.g., pr-24-<WORKER_NAME>.zellen.workers.dev
+            echo "WORKER_URL=${DEPLOY_ENV}-${WORKER_NAME}.${SUBDOMAIN}.workers.dev" >> $GITHUB_ENV
             echo "==================="
             echo "WORKER_URL=${DEPLOY_ENV}-${WORKER_NAME}.${SUBDOMAIN}.workers.dev"
           fi
