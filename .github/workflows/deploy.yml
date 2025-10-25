@@ -325,7 +325,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}  # Uses GitHub token for API access.
           script: |
             const prNumber = ${{ github.event.pull_request.number }};
-            const previewUrl = "${{ env.WORKER_URL }}";  # e.g., pr-24-<WORKER_NAME>.<subdomain>.workers.dev
+            const previewUrl = "${{ env.WORKER_URL }}";
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
