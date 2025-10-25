@@ -51,9 +51,9 @@ jobs:
           # Updates the package list and installs jq for processing JSON output from Wrangler and API calls.
           sudo apt update && sudo apt install -y jq
 
-			-	name: Set DEPLOY variable
+      - name: Set DEPLOY variable
         # Purpose: Determines the deployment mode (production or preview) based on the event and branch.
-				run: |
+        run: |
           sanitize() {
             local raw="$1"
             local lower=$(echo "$raw" | tr '[:upper:]' '[:lower:]')
@@ -81,9 +81,9 @@ jobs:
 
       - name: Setup worker (Main Deployment)
         if: env.DEPLOY == ''  # Only runs for production deployments (when DEPLOY is empty).
-				env:
-					CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-					CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           WORKER_NAME=${{ vars.WORKER_NAME }}
           if [ -z "$WORKER_NAME" ]; then
@@ -93,7 +93,7 @@ jobs:
           echo "name = \"$WORKER_NAME\"" > wrangler.toml
           echo "main = \"src/index.js\"" >> wrangler.toml
           echo "compatibility_date = \"2025-10-25\"" >> wrangler.toml
-					# Check for custom domain via workers/domains endpoint.
+		  # Check for custom domain via workers/domains endpoint.
           API_RESPONSE=$(curl -s -X GET "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/domains" \
             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
             -H "Content-Type: application/json")
@@ -109,29 +109,29 @@ jobs:
             # No custom domain, default to workers.dev and fetch subdomain.
             DOMAIN="workers.dev"
           fi
-					if [ "$DOMAIN" = "workers.dev" ]; then
-						API_RESPONSE=$(curl -s -X GET "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/workers/subdomain" \
-							-H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
-							-H "Content-Type: application/json")
-						echo "API Response (Production): $API_RESPONSE"
-						SUBDOMAIN=$(echo "$API_RESPONSE" | jq -r '.result.subdomain' 2>/dev/null || true)
-						if [ -z "$SUBDOMAIN" ]; then
-							echo "Error: Could not fetch workers.dev subdomain via API. Please ensure the subdomain is enabled in the Cloudflare dashboard." >&2
-							exit 1
-						fi
-						echo "WORKER_URL=${WORKER_NAME}.${SUBDOMAIN}.workers.dev" >> $GITHUB_ENV
-					elif [ "$DOMAIN" != "workers.dev" ] && [ -n "$DOMAIN" ]; then
-						echo "WORKER_URL=${WORKER_NAME}.${DOMAIN}" >> $GITHUB_ENV
-					else
-					  echo "Error: No Domain set, there is an error in the domain retreival logic." >&2
+          if [ "$DOMAIN" = "workers.dev" ]; then
+			API_RESPONSE=$(curl -s -X GET "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/workers/subdomain" \
+			-H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
+			-H "Content-Type: application/json")
+			echo "API Response (Production): $API_RESPONSE"
+			SUBDOMAIN=$(echo "$API_RESPONSE" | jq -r '.result.subdomain' 2>/dev/null || true)
+			if [ -z "$SUBDOMAIN" ]; then
+			  echo "Error: Could not fetch workers.dev subdomain via API. Please ensure the subdomain is enabled in the Cloudflare dashboard." >&2
+			  exit 1
+			fi
+			echo "WORKER_URL=${WORKER_NAME}.${SUBDOMAIN}.workers.dev" >> $GITHUB_ENV
+		  elif [ "$DOMAIN" != "workers.dev" ] && [ -n "$DOMAIN" ]; then
+			echo "WORKER_URL=${WORKER_NAME}.${DOMAIN}" >> $GITHUB_ENV
+		  else
+			echo "Error: No Domain set, there is an error in the domain retreival logic." >&2
             exit 1
-					fi
+		  fi
 
       - name: Setup worker (Preview Deployment)
         if: env.DEPLOY != ''  # Only runs for preview deployments (when DEPLOY is set).
-				env:
-					CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-					CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+		env:
+		  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           # Retrieves the deployment environment.
           DEPLOY_ENV=${{ env.DEPLOY }}
