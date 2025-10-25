@@ -1,4 +1,4 @@
-# Cloudflare Workers Hello World with D1 
+# Cloudflare Workers Hello World with D1
 
 This repository provides a minimal Cloudflare Worker that serves a friendly greeting from a D1 database when the binding is
 available and falls back to a built-in message otherwise. It is intended as a starting point for experiments that need a simple
