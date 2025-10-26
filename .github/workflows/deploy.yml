@@ -15,8 +15,6 @@ name: Deploy to Cloudflare Worker with D1
 # - Pull request events (opened, synchronized, or closed) targeting any branch for preview deployments and cleanup.
 on:
   push:
-    branches:
-      - '*'  # Targets all branches enable  deployments.
     paths-ignore:  # Ignore changes in .github directory
       - '**.github/**'  # Or use '.github/**' for direct contents only
       - '**README.md'  # Ignores README.md files in any directory
