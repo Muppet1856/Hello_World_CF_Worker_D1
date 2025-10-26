@@ -1,92 +1,68 @@
-# Cloudflare Workers Hello World with D1
+# Cloudflare Worker + D1 starter with end-to-end automation
 
-![GitHub Release](https://img.shields.io/github/v/release/Muppet1856/Hello_World_CF_Worker_D1)  ![GitHub License](https://img.shields.io/github/license/Muppet1856/Hello_World_CF_Worker_D1)  ![GitHub Issues or Pull Requests](https://img.shields.io/github/issues/Muppet1856/Hello_World_CF_Worker_D1)  
+![GitHub Release](https://img.shields.io/github/v/release/Muppet1856/Hello_World_CF_Worker_D1) ![GitHub License](https://img.shields.io/github/license/Muppet1856/Hello_World_CF_Worker_D1) ![GitHub Issues or Pull Requests](https://img.shields.io/github/issues/Muppet1856/Hello_World_CF_Worker_D1)
 
-This repository provides a minimal Cloudflare Worker that serves a friendly greeting from a D1 database when the binding is available and falls back to a built-in message otherwise. It is intended as a starting point for websites wishing to use Cloudflare workers and D1 to deploy.
+This template bundles a minimal Worker that reads from a Cloudflare D1 database **and** the automation needed to provision, migrate, deploy, and clean up that infrastructure. Use it to study or adopt the workflows that keep preview and production environments in sync with your GitHub branches.
 
-The repo also includes a GitHub Actions workflow that can provision the D1 database, apply migrations, and deploy preview environments automatically. You can adopt as much or as little of that automation as you need for your own projects.
+## What ships in this repository?
 
-## Project structure
+| Area | What it demonstrates |
+| --- | --- |
+| Worker implementation (`src/index.js`) | Serves an HTML greeting from D1 when the binding exists and falls back to a configurable message when it does not. The page clearly labels whether the data came from the database and surfaces any warnings. |
+| Database migrations (`migrations/*.sql`) | Applies schema changes (sample `greetings` table included) through Wrangler so every deployment runs against known migrations. |
+| Deployment workflow (`.github/workflows/deploy.yml`) | Creates or reuses the target Worker and D1 database, applies SQL migrations, deploys preview environments for pull requests, deploys `main` to production, and comments the preview URL back on the PR. |
+| Cleanup workflow (`.github/workflows/cleanup.yml`) | Deletes the preview Worker + D1 database when a pull request closes or a branch is deleted so environments do not pile up. |
 
-```
-.
-├── .github/workflows/deploy.yml   # CI workflow for preview + production deployments
-├── migrations/                    # SQL migrations for the D1 database
-│   └── 0001_create_greetings.sql
-├── src/
-│   ├── README.md
-│   └── index.js                   # Worker script that reads from D1 with a fallback message
-└── wrangler.toml                  # Local development template with placeholder values
-```
+## How the workflows operate
 
-## Prerequisites
+### Deploy (`.github/workflows/deploy.yml`)
 
-Before running the worker locally or deploying it through CI, make sure you have:
+The deploy workflow reacts to every push and pull request:
 
-- A [Cloudflare account](https://dash.cloudflare.com/) with access to the Workers and D1 beta features.
-- [Wrangler](https://developers.cloudflare.com/workers/wrangler/install-and-update/) 3.0 or newer installed locally (either
-  globally via `npm install -g wrangler` or by running `npx wrangler ...` commands).
-- A Cloudflare API token and account id so Wrangler can authenticate requests (see the next section).
+1. **Detects the environment** – `DEPLOY` is blank for production (pushes to `main`), `pr-<number>` for PRs, and a sanitized branch name for other pushes.
+2. **Generates `wrangler.toml` on the fly** – The production job writes the file from scratch, injects the Worker name, and dynamically adds a D1 binding once the database is located or created.
+3. **Provisions D1** – Uses Wrangler CLI to list existing databases, create preview databases as needed, and export `DB_NAME`/`DB_ID` for downstream steps.
+4. **Runs migrations** – Executes every SQL file under `migrations/` with `wrangler d1 execute` and verifies that tables were created successfully.
+5. **Deploys and reports** – Publishes through `cloudflare/wrangler-action`, captures the generated preview URL, and comments it on the pull request.
 
-## Cloudflare credentials
+Key repository configuration expected by the workflow:
 
-Wrangler (and the automation in this repository) authenticate with Cloudflare using an API token that is scoped to your
-account. You will also need the numeric account id so Wrangler can address the correct account when creating the D1 database.
-
-## Release metadata
-
-- The current template release is **v1.0.0** and is displayed in the Worker response for quick verification.
-- The `SITE_RELEASE` variable defined in `wrangler.toml` (or injected via the Cloudflare dashboard) controls which release
-  string appears on the website. When you publish a GitHub release, set `SITE_RELEASE` to the Git tag (for example
-  `GITHUB_REF_NAME` within a GitHub Actions release workflow) so the worker, README badge above, and release page stay aligned.
-
-### Create an API token
-
-1. Visit **My Profile → API Tokens** in the Cloudflare dashboard and choose **Create Token**.
-2. Start from the **Edit Cloudflare Workers** template (or create a custom token) and ensure it has these permissions:
-   - **Account · Workers Scripts · Edit** – allows Wrangler to publish the worker.
-   - **Account · Workers Routes · Edit** – required when binding the worker to routes.
-   - **Account · D1 Databases · Edit** – allows Wrangler to provision the database and run migrations.
-3. Scope the token to the account that owns your worker, give it a descriptive name, and save it somewhere secure. You will only
-   be able to copy the value once.
-4. Store the token in the `CLOUDFLARE_API_TOKEN` environment variable locally (a `.env` file works well) and in the
-   `CLOUDFLARE_API_TOKEN` secret inside GitHub Actions.
-
-### Locate your account id
-
-1. Open the Cloudflare dashboard and copy the **Account ID** displayed on the **Overview** page for the account that owns your
-   worker.
-2. Alternatively, run `wrangler whoami --json` and copy the `account_id` property from the output.
-3. Store the id in the `CLOUDFLARE_ACCOUNT_ID` environment variable locally and add it as the
-   `CLOUDFLARE_ACCOUNT_ID` secret in GitHub Actions so the workflow can authenticate API requests.
-
-## GitHub Actions workflow
-
-The `.github/workflows/deploy.yml` file demonstrates how to:
-
-- Generate a preview Worker (and matching D1 database) for every pull request.
-- Deploy the `main` branch to production once it is merged.
-- Clean up preview Workers and databases when pull requests close.
-
-To use the workflow as-is you need to define the following repository secrets and variables under
-**Settings → Secrets and variables → Actions**:
-
-| Name | Type | Purpose |
+| Name | Type | Description |
 | --- | --- | --- |
-| `CLOUDFLARE_API_TOKEN` | Secret | API token with permission to manage Workers, routes, and D1 databases. |
-| `CLOUDFLARE_ACCOUNT_ID` | Secret | Account id that Wrangler uses when calling the Cloudflare API. |
-| `WORKER_NAME` | Variable | Base name for the production Worker, e.g. `hello-world-cf-worker-d1`. |
-| `BINDING_NAME` | Variable | D1 binding name expected by the Worker (`HELLO_WORLD_DB` unless you update `src/index.js`). |
-| `DOMAIN` | Variable (optional) | Custom domain for preview deployments. Leave empty to use `<worker>.workers.dev`. |
-| `USE_PRODUCTION_DB_ON_PREVIEW` | Variable (optional) | Set to the string `true` to point preview Workers at the production D1 database. Leave empty or `false` to create isolated preview databases. |
+| `CLOUDFLARE_API_TOKEN` | Secret | Token with Workers Scripts, Workers Routes, and D1 Databases access. |
+| `CLOUDFLARE_ACCOUNT_ID` | Secret | Numeric Cloudflare account id. |
+| `WORKER_NAME` | Variable | Base Worker name (e.g. `hello-world-cf-worker-d1`). |
+| `BINDING_NAME` | Variable | D1 binding name used by the Worker (`HELLO_WORLD_DB` by default). |
+| `DOMAIN` | Variable (optional) | Custom domain for preview URLs if you do not want the default `workers.dev` hostname. |
+| `USE_PRODUCTION_DB_ON_PREVIEW` | Variable (optional) | When `true`, previews reuse the production database; otherwise previews get isolated databases. |
 
-Feel free to trim the workflow down to the pieces that match your release process.
+### Cleanup (`.github/workflows/cleanup.yml`)
 
-When `USE_PRODUCTION_DB_ON_PREVIEW` is left empty (default) each pull request receives its own dedicated preview database whose name is derived from the PR number. Setting the variable to the literal string `true` tells the workflow to reuse the production database in previews—for example, when you want to test schema changes against live data before merging.
+Closing a pull request or deleting a branch runs the cleanup workflow. It mirrors the branch sanitization logic from the deploy job, then:
 
-## Troubleshooting tips
+1. Authenticates against the Cloudflare API using the same secrets.
+2. Deletes the preview Worker whose name matches `<sanitized-branch>-<WORKER_NAME>` if it exists.
+3. Removes the associated preview D1 database through Wrangler so D1 instance limits are not exhausted.
 
-- If the deploy workflow cannot find a `database_id` entry to replace, double-check that your `wrangler.toml` file includes the
-  placeholder binding from the committed template.
-- When using the GitHub Actions workflow, confirm that the `WORKER_NAME` and `BINDING_NAME` variables exist; the job will fail
-  early if they are missing to make misconfiguration obvious.
+## Running the Worker locally
+
+1. Install [Wrangler 4](https://developers.cloudflare.com/workers/wrangler/install-and-update/) (the workflows pin that version).
+2. Create a `.env` file with your `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, and any Worker variables (`SITE_TITLE`, `DEFAULT_GREETING`, etc.).
+3. Provision a database with `npx wrangler d1 create <db-name>` and add the binding to a local `wrangler.toml` (see the generated version in CI for reference).
+4. Apply migrations locally via `npx wrangler d1 execute <db-name> --file=migrations/0001_create_greetings.sql`.
+5. Run `npx wrangler dev` to test the Worker with the bound database.
+
+## Worker behavior in depth
+
+The Worker extracts request metadata to describe where the greeting was served from, escapes all HTML to avoid injection, and gracefully falls back when the database is unavailable. Errors return a styled HTML diagnostic page rather than a bare JSON payload so incidents are easier to spot when browsing directly. Customize the message by setting:
+
+- `DEFAULT_GREETING` – Controls the fallback message when D1 cannot be reached.
+- `SITE_TITLE` – Updates the HTML title and heading.
+
+See `src/README.md` for notes on replacing the demo Worker with your own implementation.
+
+## Troubleshooting
+
+- Ensure `WORKER_NAME` and `BINDING_NAME` are defined as repository variables; both workflows fail fast if they are missing.
+- If database creation fails due to plan limits, the deploy workflow surfaces the Cloudflare error and stops before deploying.
+- Preview cleanups require the same Cloudflare API token scopes as deployments. Verify the token includes D1 management access if preview databases linger after PR closure.
