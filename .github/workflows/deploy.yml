@@ -48,7 +48,7 @@ jobs:
           # Installs Wrangler version 4 as a development dependency for managing Cloudflare Workers.
           npm install wrangler@4 --save-dev
           # Updates the package list and installs jq for processing JSON output from Wrangler and API calls.
-          sudo apt update && sudo apt install -y jq
+          sudo apt update -qq && sudo apt install -y jq -qq
 
       - name: Set DEPLOY variable
         # Purpose: Determines the deployment mode (production or preview) based on the event and branch.
