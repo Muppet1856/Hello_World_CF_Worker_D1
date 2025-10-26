@@ -11,10 +11,12 @@ name: Deploy to Cloudflare Worker with D1
 
 # Event Triggers:
 # The workflow is triggered by:
-# - Push events to any branch ('main' for production, others for previews).
-# - Pull request events (opened, synchronized, or closed) targeting any branch for preview deployments and cleanup.
+# - Push events to the 'main' branch for production deployments.
+# - Pull request events (opened or synchronized) targeting any branch for preview deployments.
 on:
   push:
+    branches:
+      - main
     paths-ignore:  # Ignore changes in .github directory
       - '**.github/**'  # Or use '.github/**' for direct contents only
       - '**README.md'  # Ignores README.md files in any directory
@@ -22,11 +24,7 @@ on:
     paths-ignore:  # Ignore changes in .github directory
       - '**.github/**'  # Or use '.github/**' for direct contents only
       - '**README.md'  # Ignores README.md files in any directory
-    types: [opened, synchronize]  # Captures PR creation and updates for deployment and cleanup.
-  create:
-    paths-ignore:  # Ignore changes in .github directory
-    - '**.github/**'  # Or use '.github/**' for direct contents only
-    - '**README.md'  # Ignores README.md files in any directory
+    types: [opened, synchronize]  # Captures PR creation and updates for deployment.
 
 jobs:
   deploy:
@@ -90,7 +88,7 @@ jobs:
             echo "DEPLOY=" >> $GITHUB_ENV
           # Logic for Branch Pushes (Preview deployments):
           # For pushes to non-main branches, use a sanitized branch name for DEPLOY.
-          elif [ "${{ github.event_name }}" == "push" ] || [ "${{ github.event_name }}" == "create" ]; then
+          elif [ "${{ github.event_name }}" == "push" ]; then
             SANITIZED_BRANCH=$(sanitize "${{ github.ref_name }}")
             echo "DEPLOY=$SANITIZED_BRANCH" >> $GITHUB_ENV
             echo "NEWBRANCH=true" >> $GITHUB_ENV
