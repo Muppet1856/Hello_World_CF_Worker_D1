@@ -17,9 +17,13 @@ on:
   push:
     branches:
       - '*'  # Targets all branches enable  deployments.
+    paths-ignore:  # Ignore changes in .github directory
+      - '**.github/**'  # Or use '.github/**' for direct contents only
   pull_request:
     branches:
       - '*'  # Targets all branches for PRs to enable preview deployments.
+    paths-ignore:  # Ignore changes in .github directory
+      - '**.github/**'  # Or use '.github/**' for direct contents only
     types: [opened, synchronize]  # Captures PR creation and updates for deployment and cleanup.
 
 jobs:
