@@ -25,6 +25,9 @@ on:
       - '**/.github/**'  # Or use '.github/**' for direct contents only
       - '**/README.md'  # Ignores README.md files in any directory
     types: [opened, synchronize]  # Captures PR creation and updates for deployment.
+  create:
+    branches:
+      - '**'  # Triggers when new branches are created so previews can be provisioned immediately.
 
 jobs:
   deploy:
@@ -89,6 +92,12 @@ jobs:
           # Logic for Branch Pushes (Preview deployments):
           # For pushes to non-main branches, use a sanitized branch name for DEPLOY.
           elif [ "${{ github.event_name }}" == "push" ]; then
+            SANITIZED_BRANCH=$(sanitize "${{ github.ref_name }}")
+            echo "DEPLOY=$SANITIZED_BRANCH" >> $GITHUB_ENV
+            echo "NEWBRANCH=true" >> $GITHUB_ENV
+          # Logic for Branch Creations:
+          # For create events on branches, set DEPLOY using the new branch name so previews are provisioned immediately.
+          elif [ "${{ github.event_name }}" == "create" ] && [ "${{ github.ref_type }}" == "branch" ]; then
             SANITIZED_BRANCH=$(sanitize "${{ github.ref_name }}")
             echo "DEPLOY=$SANITIZED_BRANCH" >> $GITHUB_ENV
             echo "NEWBRANCH=true" >> $GITHUB_ENV
