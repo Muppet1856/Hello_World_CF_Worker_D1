@@ -16,14 +16,14 @@ name: Deploy to Cloudflare Worker with D1
 on:
   push:
     branches:
-      - main
+      - '**'
     paths-ignore:  # Ignore changes in .github directory
-      - '**.github/**'  # Or use '.github/**' for direct contents only
-      - '**README.md'  # Ignores README.md files in any directory
+      - '**/.github/**'  # Or use '.github/**' for direct contents only
+      - '**/README.md'  # Ignores README.md files in any directory
   pull_request:
     paths-ignore:  # Ignore changes in .github directory
-      - '**.github/**'  # Or use '.github/**' for direct contents only
-      - '**README.md'  # Ignores README.md files in any directory
+      - '**/.github/**'  # Or use '.github/**' for direct contents only
+      - '**/README.md'  # Ignores README.md files in any directory
     types: [opened, synchronize]  # Captures PR creation and updates for deployment.
 
 jobs:
