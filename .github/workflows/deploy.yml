@@ -210,7 +210,7 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}  # For Wrangler and API authentication.
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}  # For identifying the Cloudflare account.
-					USE_PRODUCTION_DB_ON_PREVIEW: ${{ vars.USE_PRODUCTION_DB_ON_PREVIEW }} # For managing the production vs preview database
+          USE_PRODUCTION_DB_ON_PREVIEW: ${{ vars.USE_PRODUCTION_DB_ON_PREVIEW }} # For managing the production vs preview database
         run: |
           # Retrieves worker name and deployment environment.
           WORKER_NAME=${{ vars.WORKER_NAME }}
