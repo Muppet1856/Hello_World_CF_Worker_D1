@@ -7,11 +7,13 @@ on:
     types: [closed]
     paths-ignore:  # Ignore changes in .github directory
       - '**.github/**'  # Or use '.github/**' for direct contents only
+      - '**README.md'  # Ignores README.md files in any directory
   delete:
     branches:
       - '*'
     paths-ignore:  # Ignore changes in .github directory
       - '**.github/**'  # Or use '.github/**' for direct contents only
+      - '**README.md'  # Ignores README.md files in any directory
 
 jobs:
   cleanup-preview:
