@@ -54,10 +54,7 @@ Closing a pull request or deleting a branch runs the cleanup workflow. It mirror
 
 ## Worker behavior in depth
 
-The Worker extracts request metadata to describe where the greeting was served from, escapes all HTML to avoid injection, and gracefully falls back when the database is unavailable. Errors return a styled HTML diagnostic page rather than a bare JSON payload so incidents are easier to spot when browsing directly. Customize the message by setting:
-
-- `DEFAULT_GREETING` – Controls the fallback message when D1 cannot be reached.
-- `SITE_TITLE` – Updates the HTML title and heading.
+The Worker extracts request metadata to describe where the greeting was served from, escapes all HTML to avoid injection, and gracefully falls back when the database is unavailable. Errors return a styled HTML diagnostic page rather than a bare JSON payload so incidents are easier to spot when browsing directly. 
 
 See `src/README.md` for notes on replacing the demo Worker with your own implementation.
 
@@ -66,3 +63,4 @@ See `src/README.md` for notes on replacing the demo Worker with your own impleme
 - Ensure `WORKER_NAME` and `BINDING_NAME` are defined as repository variables; both workflows fail fast if they are missing.
 - If database creation fails due to plan limits, the deploy workflow surfaces the Cloudflare error and stops before deploying.
 - Preview cleanups require the same Cloudflare API token scopes as deployments. Verify the token includes D1 management access if preview databases linger after PR closure.
+S
