@@ -363,7 +363,7 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}  # Authenticates with Cloudflare.
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}  # Specifies the account for deployment.
           vars: |
-            DB_SOURCE: DB_SOURCE_LABEL
+            DB_SOURCE: ${{ env.DB_SOURCE_LABEL }}
 
       - name: Debug Variables
         if: github.event_name == 'pull_request' && github.event.action != 'closed'
