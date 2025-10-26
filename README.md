@@ -86,6 +86,10 @@ When `USE_PRODUCTION_DB_ON_PREVIEW` is enabled the workflow skips creating or de
 exposes a banner on the rendered page that states whether the production or preview database is serving the request so reviewers
 can verify the environment at a glance.
 
+The deploy workflow publishes a `DB_SOURCE` variable alongside the worker so the UI banner reflects the active database. The
+Wrangler action expects each entry under `vars` to reference an existing environment variable name, so the workflow maps
+`DB_SOURCE` to the `DB_SOURCE_LABEL` value that earlier steps write into the job environment.
+
 ## Customising the greeting
 
 - Update the seeded greeting by editing `migrations/0001_create_greetings.sql` and re-running the migration against a fresh
