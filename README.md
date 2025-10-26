@@ -8,7 +8,7 @@ This template bundles a minimal Worker that reads from a Cloudflare D1 database 
 
 | Area | What it demonstrates |
 | --- | --- |
-| Worker implementation (`src/index.js`) | See `src/README.md` for notes on replacing the demo Worker with your own implementation. |
+| Worker implementation (`src/index.js`) | See <a href="src/">`src/README.md`</a> for notes on replacing the demo Worker with your own implementation. |
 | Database migrations (`migrations/*.sql`) | Applies schema changes (sample `greetings` table included) through Wrangler so every deployment runs against known migrations. |
 | Deployment workflow (`.github/workflows/deploy.yml`) | Creates or reuses the target Worker and D1 database, applies SQL migrations, deploys preview environments for pull requests, deploys `main` to production, and comments the preview URL back on the PR. |
 | Cleanup workflow (`.github/workflows/cleanup.yml`) | Deletes the preview Worker + D1 database when a pull request closes or a branch is deleted so environments do not pile up. |
