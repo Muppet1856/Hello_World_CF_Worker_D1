@@ -48,7 +48,7 @@ jobs:
           }
 
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            RAW_BRANCH="${{ github.event.pull_request.head.ref }}"
+            RAW_BRANCH="pr-${{ github.event.pull_request.number }}"
           elif [ "${{ github.event_name }}" = "delete" ] && [ "${{ github.event.ref_type }}" = "branch" ]; then
             RAW_BRANCH="${{ github.event.ref }}"
           else
