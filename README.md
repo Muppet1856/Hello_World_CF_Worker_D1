@@ -87,8 +87,8 @@ exposes a banner on the rendered page that states whether the production or prev
 can verify the environment at a glance.
 
 The deploy workflow publishes a `DB_SOURCE` variable alongside the worker so the UI banner reflects the active database. The
-Wrangler action expects each entry under `vars` to reference an existing environment variable name, so the workflow maps
-`DB_SOURCE` to the `DB_SOURCE_LABEL` value that earlier steps write into the job environment.
+Wrangler action receives the resolved value directly from the `DB_SOURCE_LABEL` environment variable that earlier steps write
+into the job environment.
 
 ## Customising the greeting
 

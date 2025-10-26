@@ -359,13 +359,11 @@ jobs:
       - name: Deploy Worker
         # Purpose: Deploys the Worker to Cloudflare using the wrangler-action.
         uses: cloudflare/wrangler-action@v3
-        env:
-          DB_SOURCE_LABEL: ${{ env.DB_SOURCE_LABEL }}
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}  # Authenticates with Cloudflare.
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}  # Specifies the account for deployment.
           vars: |
-            DB_SOURCE: DB_SOURCE_LABEL
+            DB_SOURCE: ${{ env.DB_SOURCE_LABEL }}
 
       - name: Debug Variables
         if: github.event_name == 'pull_request' && github.event.action != 'closed'
