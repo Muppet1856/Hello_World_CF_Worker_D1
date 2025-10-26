@@ -392,7 +392,9 @@ jobs:
               -H "Content-Type: application/json")
             if echo "$WORKERS" | jq -e --arg name "$PREVIEW_NAME" '.result[] | select(.id == $name)' > /dev/null 2>&1; then
               echo "Deleting preview Worker: $PREVIEW_NAME"
-              npx wrangler delete "$PREVIEW_NAME" --yes
+              curl -s -X DELETE "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$PREVIEW_NAME" \
+                -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+                -H "Content-Type: application/json"
               if [ $? -eq 0 ]; then
                 echo "Preview Worker $PREVIEW_NAME deleted"
               else
