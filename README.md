@@ -63,4 +63,3 @@ See `src/README.md` for notes on replacing the demo Worker with your own impleme
 - Ensure `WORKER_NAME` and `BINDING_NAME` are defined as repository variables; both workflows fail fast if they are missing.
 - If database creation fails due to plan limits, the deploy workflow surfaces the Cloudflare error and stops before deploying.
 - Preview cleanups require the same Cloudflare API token scopes as deployments. Verify the token includes D1 management access if preview databases linger after PR closure.
-S
