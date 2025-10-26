@@ -411,7 +411,7 @@ jobs:
               -H "Content-Type: application/json")
             if echo "$D1_DBS" | jq -e --arg name "$PREVIEW_DB_NAME" '.result[] | select(.name == $name)' > /dev/null 2>&1; then
               echo "Deleting preview D1 database: $PREVIEW_DB_NAME"
-              npx wrangler d1 delete "$PREVIEW_DB_NAME" --yes
+              npx wrangler d1 delete "$PREVIEW_DB_NAME"
               if [ $? -eq 0 ]; then
                 echo "Preview D1 database $PREVIEW_DB_NAME deleted"
               else
