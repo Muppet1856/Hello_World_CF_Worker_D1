@@ -84,20 +84,6 @@ Feel free to trim the workflow down to the pieces that match your release proces
 
 When `USE_PRODUCTION_DB_ON_PREVIEW` is left empty (default) each pull request receives its own dedicated preview database whose name is derived from the PR number. Setting the variable to the literal string `true` tells the workflow to reuse the production database in previews—for example, when you want to test schema changes against live data before merging.
 
-## Customising the greeting
-
-- Update the seeded greeting by editing `migrations/0001_create_greetings.sql` and re-running the migration against a fresh
-  database, or execute an ad-hoc SQL statement:
-
-  ```bash
-  wrangler d1 execute hello_world \
-    --command='UPDATE greetings SET message = "Hello from D1" WHERE id = 1;' --remote
-  ```
-
-- Supply a fallback greeting without touching the database by setting a `DEFAULT_GREETING` variable in your `wrangler.toml` (or
-  through the Cloudflare dashboard). When the D1 binding is unavailable the worker uses that value instead of the default
-  "Hello World" string.
-
 ## Troubleshooting tips
 
 - If the deploy workflow cannot find a `database_id` entry to replace, double-check that your `wrangler.toml` file includes the
