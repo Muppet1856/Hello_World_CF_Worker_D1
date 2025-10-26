@@ -3,8 +3,6 @@ const FALLBACK_NOTE = "This greeting is served from a built-in fallback message.
 const FALLBACK_WARNING =
   "Create a D1 database and bind it as HELLO_WORLD_DB to serve content from D1.";
 const DEFAULT_GREETING = "Hello World";
-const DEFAULT_RELEASE = "v1.0.0";
-const REPOSITORY_SLUG_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const ERROR_TITLE = "Database unavailable";
 
 function formatDatabaseNote(locationLabel) {
@@ -44,92 +42,6 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
-}
-
-function normalizeRepositoryValue(value) {
-  if (typeof value !== "string") {
-    return null;
-  }
-
-  const trimmed = value.trim();
-
-  if (REPOSITORY_SLUG_PATTERN.test(trimmed)) {
-    return trimmed;
-  }
-
-  const githubUrlMatch = trimmed.match(
-    /^https?:\/\/github\.com\/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)(?:\.git)?\/?$/i,
-  );
-
-  if (githubUrlMatch) {
-    return githubUrlMatch[1];
-  }
-
-  const sshMatch = trimmed.match(/^git@github\.com:([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)(?:\.git)?$/i);
-
-  if (sshMatch) {
-    return sshMatch[1];
-  }
-
-  return null;
-}
-
-function resolveRepositorySlug(env) {
-  const candidates = [
-    env?.SITE_REPOSITORY,
-    env?.GITHUB_REPOSITORY,
-    env?.CF_PAGES_REPO_FULL_NAME,
-    env?.REPOSITORY,
-    env?.WRANGLER_REPOSITORY,
-  ];
-
-  for (const candidate of candidates) {
-    const normalized = normalizeRepositoryValue(candidate);
-
-    if (normalized) {
-      return normalized;
-    }
-  }
-
-  if (env?.CF_PAGES_REPO_OWNER && env?.CF_PAGES_REPO_NAME) {
-    const owner = String(env.CF_PAGES_REPO_OWNER).trim();
-    const name = String(env.CF_PAGES_REPO_NAME).trim();
-    const combined = `${owner}/${name}`;
-
-    if (REPOSITORY_SLUG_PATTERN.test(combined)) {
-      return combined;
-    }
-  }
-
-  return null;
-}
-
-function buildReleaseSection(releaseLabel, repositorySlug) {
-  const safeRelease = releaseLabel ? escapeHtml(releaseLabel) : null;
-
-  if (repositorySlug) {
-    const releaseBadgeUrl = escapeHtml(
-      `https://img.shields.io/github/v/release/${repositorySlug}?display_name=tag&sort=semver`,
-    );
-    const releaseLinkUrl = escapeHtml(`https://github.com/${repositorySlug}/releases`);
-    const safeRepositorySlug = escapeHtml(repositorySlug);
-    const accessibleLabel = safeRelease
-      ? `Current release ${safeRelease}`
-      : `Latest GitHub release for ${safeRepositorySlug}`;
-
-    return `<p class="release" aria-label="Application release">
-        <a class="release-badge" href="${releaseLinkUrl}" target="_blank" rel="noopener noreferrer">
-          <img src="${releaseBadgeUrl}" alt="Latest GitHub release for ${safeRepositorySlug}" loading="lazy" />
-        </a>
-        <span class="sr-only">${accessibleLabel}</span>
-      </p>`;
-  }
-
-  if (safeRelease) {
-    return `<p class="release" aria-label="Application release"><span class="release-text">Release ${safeRelease}</span></p>`;
-  }
-
-  return "";
 }
 
 async function readGreetingFromDatabase(database) {
@@ -190,15 +102,7 @@ async function resolveGreeting(env, locationLabel) {
   }
 }
 
-function renderSuccessHtml(
-  message,
-  siteTitle,
-  note,
-  warning,
-  requestUrl,
-  releaseLabel,
-  repositorySlug,
-) {
+function renderSuccessHtml(message, siteTitle, note, warning, requestUrl) {
   const safeMessage = escapeHtml(message);
   const safeNote = escapeHtml(note);
   const safeSiteTitle = escapeHtml(siteTitle);
@@ -209,7 +113,6 @@ function renderSuccessHtml(
   const warningHtml = warning
     ? `<p class="warning">${escapeHtml(warning)}</p>`
     : "";
-  const releaseHtml = buildReleaseSection(releaseLabel, repositorySlug);
   const requestUrlHtml = safeRequestUrl
     ? `<section class="meta" aria-label="Request details">
         <dl>
@@ -254,27 +157,6 @@ function renderSuccessHtml(
         margin: 0;
         color: #4b5563;
         font-size: 1.125rem;
-      }
-      .release {
-        margin-top: 0.75rem;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-      }
-      .release-badge {
-        display: inline-flex;
-        align-items: center;
-      }
-      .release-badge img {
-        display: block;
-        height: 28px;
-      }
-      .release-text {
-        font-size: 0.95rem;
-        font-weight: 600;
-        letter-spacing: 0.05em;
-        text-transform: uppercase;
-        color: #2563eb;
       }
       .sr-only {
         position: absolute;
@@ -344,7 +226,6 @@ function renderSuccessHtml(
     <main>
       <h1>${safeMessage}</h1>
       <p>${safeNote}</p>
-      ${releaseHtml}
       ${requestUrlHtml}
       ${warningHtml}
     </main>
@@ -352,10 +233,9 @@ function renderSuccessHtml(
 </html>`;
 }
 
-function renderErrorHtml(error, siteTitle, releaseLabel, repositorySlug) {
+function renderErrorHtml(error, siteTitle) {
   const reason = escapeHtml(error instanceof Error ? error.message : String(error));
   const safeSiteTitle = escapeHtml(siteTitle);
-  const releaseHtml = buildReleaseSection(releaseLabel, repositorySlug);
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -393,27 +273,6 @@ function renderErrorHtml(error, siteTitle, releaseLabel, repositorySlug) {
         color: #b91c1c;
         font-size: 1.125rem;
       }
-      .release {
-        margin-top: 0.75rem;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-      }
-      .release-badge {
-        display: inline-flex;
-        align-items: center;
-      }
-      .release-badge img {
-        display: block;
-        height: 28px;
-      }
-      .release-text {
-        font-size: 0.95rem;
-        font-weight: 600;
-        letter-spacing: 0.05em;
-        text-transform: uppercase;
-        color: #991b1b;
-      }
       .sr-only {
         position: absolute;
         width: 1px;
@@ -440,7 +299,6 @@ function renderErrorHtml(error, siteTitle, releaseLabel, repositorySlug) {
     <main>
       <h1>${ERROR_TITLE}</h1>
       <p>The worker could not reach the D1 database.</p>
-      ${releaseHtml}
       <code>${reason}</code>
     </main>
   </body>
@@ -450,8 +308,6 @@ function renderErrorHtml(error, siteTitle, releaseLabel, repositorySlug) {
 export default {
   async fetch(request, env) {
     const siteTitle = env?.SITE_TITLE?.trim() || "Hello World";
-    const siteRelease = env?.SITE_RELEASE?.trim() || DEFAULT_RELEASE;
-    const repositorySlug = resolveRepositorySlug(env);
 
     try {
       const locationLabel = describeInfrastructureLocation(request);
@@ -462,8 +318,6 @@ export default {
         note,
         warning,
         request?.url ?? null,
-        siteRelease,
-        repositorySlug,
       );
 
       return new Response(body, {
@@ -473,7 +327,7 @@ export default {
       });
     } catch (error) {
       console.error("Failed to read greeting from D1:", error);
-      const body = renderErrorHtml(error, siteTitle, siteRelease, repositorySlug);
+      const body = renderErrorHtml(error, siteTitle);
 
       return new Response(body, {
         status: 500,
