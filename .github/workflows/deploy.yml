@@ -210,6 +210,7 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}  # For Wrangler and API authentication.
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}  # For identifying the Cloudflare account.
+					USE_PRODUCTION_DB_ON_PREVIEW: ${{ vars.USE_PRODUCTION_DB_ON_PREVIEW }} # For managing the production vs preview database
         run: |
           # Retrieves worker name and deployment environment.
           WORKER_NAME=${{ vars.WORKER_NAME }}
@@ -224,9 +225,9 @@ jobs:
             exit 1
           fi
           # Determines the database name based on deployment type.
-          if [ -z "$DEPLOY_ENV" ]; then
+          if [ -z "$DEPLOY_ENV" ] || [ "$USE_PRODUCTION_DB_ON_PREVIEW" = "true" ]; then
             DB_NAME="${WORKER_NAME}"  # Production: uses worker name.
-          else
+          elif [ "$USE_PRODUCTION_DB_ON_PREVIEW" = "false" ] || [ -z "$USE_PRODUCTION_DB_ON_PREVIEW" ]; then
             DB_NAME="${DEPLOY_ENV}-${WORKER_NAME}"  # Preview: uses pr-<number>-<WORKER_NAME>.
           fi
           BINDING_NAME=${{ vars.BINDING_NAME }}  # Binding name for D1 database access.
