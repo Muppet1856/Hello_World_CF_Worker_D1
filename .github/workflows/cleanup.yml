@@ -1,3 +1,5 @@
+name: Cleanup Cloudflare Workers and D1
+
 on:
   pull_request:
     branches:
