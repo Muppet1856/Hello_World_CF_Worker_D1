@@ -1,61 +1,92 @@
 on:
   pull_request:
     branches:
-      - '*'  # Targets all branches for PRs to enable preview deployments.
-    types: [closed]  # Captures PR creation and updates for deployment and cleanup.
+      - '*'
+    types: [closed]
+  delete:
+    branches:
+      - '*'
+
 jobs:
   cleanup-preview:
-    # Job Configuration:
-    # This job cleans up preview Workers and D1 databases when a PR is closed.
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || (github.event_name == 'delete' && github.event.ref_type == 'branch')
     steps:
       - name: Checkout repository
-        # Purpose: Clones the repository to access any necessary scripts or configuration.
         uses: actions/checkout@v4
 
       - name: Set up Node.js
-        # Purpose: Sets up Node.js for running Wrangler commands during cleanup.
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
       - name: Install dependencies
-        # Purpose: Installs Wrangler and jq for cleanup operations.
         run: |
           npm install wrangler@4 --save-dev
           sudo apt update && sudo apt install -y jq
 
+      - name: Determine branch cleanup target
+        id: branch
+        run: |
+          sanitize() {
+            local raw="$1"
+            local lower=$(echo "$raw" | tr '[:upper:]' '[:lower:]')
+            local replaced=$(echo "$lower" | tr '/' '-')
+            local cleaned=$(echo "$replaced" | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-//' | sed 's/-$//')
+            if [ -z "$cleaned" ]; then
+              cleaned="preview"
+            fi
+            echo "$cleaned"
+          }
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            RAW_BRANCH="${{ github.event.pull_request.head.ref }}"
+          elif [ "${{ github.event_name }}" = "delete" ] && [ "${{ github.event.ref_type }}" = "branch" ]; then
+            RAW_BRANCH="${{ github.event.ref }}"
+          else
+            echo "Error: Unsupported event for cleanup: ${{ github.event_name }}" >&2
+            exit 1
+          fi
+
+          SANITIZED_BRANCH=$(sanitize "$RAW_BRANCH")
+          if [ -z "$SANITIZED_BRANCH" ]; then
+            echo "Error: Sanitized branch is empty." >&2
+            exit 1
+          fi
+
+          echo "sanitized=$SANITIZED_BRANCH" >> "$GITHUB_OUTPUT"
+
       - name: Delete Preview Worker and D1 Database
-        # Purpose: Lists Workers and D1 databases via Cloudflare API, deletes using Wrangler.
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WORKER_NAME: ${{ vars.WORKER_NAME }}
+          SANITIZED_BRANCH: ${{ steps.branch.outputs.sanitized }}
         run: |
-          PR_NUMBER=${{ github.event.pull_request.number }}  # Gets the PR number.
-          PREVIEW_NAME="pr-${PR_NUMBER}-${{ vars.WORKER_NAME }}"  # e.g., pr-24-<WORKER_NAME>.
-          PREVIEW_DB_NAME="${PREVIEW_NAME}"  # Matches the database name to the Worker name.
-      
-          # Verifies Cloudflare authentication via API.
+          if [ -z "$WORKER_NAME" ]; then
+            echo "Error: WORKER_NAME is not set. Please define it in GitHub repository variables." >&2
+            exit 1
+          fi
+
+          PREVIEW_NAME="${SANITIZED_BRANCH}-${WORKER_NAME}"
+          PREVIEW_DB_NAME="$PREVIEW_NAME"
+
           if curl -s -X GET "https://api.cloudflare.com/client/v4/user" \
             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
             -H "Content-Type: application/json" | jq -e '.success' > /dev/null 2>&1; then
             echo "Cloudflare authentication successful"
-      
-            # Set up Wrangler configuration for deletions.
+
             export CLOUDFLARE_API_TOKEN="$CLOUDFLARE_API_TOKEN"
             export CLOUDFLARE_ACCOUNT_ID="$CLOUDFLARE_ACCOUNT_ID"
-      
-            # Checks for the preview Worker via API.
+
             WORKERS=$(curl -s -X GET "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts" \
               -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
               -H "Content-Type: application/json")
             if echo "$WORKERS" | jq -e --arg name "$PREVIEW_NAME" '.result[] | select(.id == $name)' > /dev/null 2>&1; then
               echo "Deleting preview Worker: $PREVIEW_NAME"
-              curl -s -X DELETE "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$PREVIEW_NAME" \
+              if curl -s -X DELETE "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$PREVIEW_NAME" \
                 -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-                -H "Content-Type: application/json"
-              if [ $? -eq 0 ]; then
+                -H "Content-Type: application/json"; then
                 echo "Preview Worker $PREVIEW_NAME deleted"
               else
                 echo "Failed to delete preview Worker $PREVIEW_NAME"
@@ -64,15 +95,13 @@ jobs:
             else
               echo "Preview Worker $PREVIEW_NAME not found, skipping deletion"
             fi
-      
-            # Checks for the preview D1 database via API.
+
             D1_DBS=$(curl -s -X GET "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/d1/database" \
               -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
               -H "Content-Type: application/json")
             if echo "$D1_DBS" | jq -e --arg name "$PREVIEW_DB_NAME" '.result[] | select(.name == $name)' > /dev/null 2>&1; then
               echo "Deleting preview D1 database: $PREVIEW_DB_NAME"
-              npx wrangler d1 delete "$PREVIEW_DB_NAME"
-              if [ $? -eq 0 ]; then
+              if npx wrangler d1 delete "$PREVIEW_DB_NAME"; then
                 echo "Preview D1 database $PREVIEW_DB_NAME deleted"
               else
                 echo "Failed to delete preview D1 database $PREVIEW_DB_NAME"
