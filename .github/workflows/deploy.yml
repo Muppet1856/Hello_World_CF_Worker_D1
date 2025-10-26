@@ -56,7 +56,8 @@ jobs:
           sanitize() {
             local raw="$1"
             local lower=$(echo "$raw" | tr '[:upper:]' '[:lower:]')
-            local cleaned=$(echo "$lower" | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-//' | sed 's/-$//')
+            local replaced=$(echo "$lower" | tr '/' '-')
+            local cleaned=$(echo "$replaced" | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-//' | sed 's/-$//')
             if [ -z "$cleaned" ]; then
               cleaned="preview"
             fi
@@ -69,8 +70,13 @@ jobs:
             echo "DEPLOY=$(sanitize "$RAW_DEPLOY")" >> $GITHUB_ENV
           # Logic for Main Branch Pushes:
           # For pushes to main, sets DEPLOY to an empty string to indicate production mode.
-          elif [ "${{ github.ref_name }}" == "main" ]; then
+          elif [ "${{ github.event_name }}" == "push" ] && [ "${{ github.ref_name }}" == "main" ]; then
             echo "DEPLOY=" >> $GITHUB_ENV
+          # Logic for Branch Pushes (Preview deployments):
+          # For pushes to non-main branches, use a sanitized branch name for DEPLOY.
+          elif [ "${{ github.event_name }}" == "push" ]; then
+            SANITIZED_BRANCH=$(sanitize "${{ github.ref_name }}")
+            echo "DEPLOY=$SANITIZED_BRANCH" >> $GITHUB_ENV
           # Error Handling:
           # If none of the above conditions are met, logs an error and fails the workflow.
           else
@@ -151,8 +157,10 @@ jobs:
           fi
           # Retrieves the deployment environment.
           DEPLOY_ENV=${{ env.DEPLOY }}
+          PREVIEW_HOST="${DEPLOY_ENV}-${WORKER_NAME}"
+          echo "Preview worker host derived from event: ${PREVIEW_HOST}"
           # Generates wrangler.toml for the preview Worker.
-          echo "name = \"${DEPLOY_ENV}-${WORKER_NAME}\"" > wrangler.toml
+          echo "name = \"${PREVIEW_HOST}\"" > wrangler.toml
           echo "main = \"src/index.js\"" >> wrangler.toml
           echo "compatibility_date = \"2025-10-24\"" >> wrangler.toml
           # Check for custom domain via workers/domains endpoint.
@@ -176,9 +184,9 @@ jobs:
           if [ -n "$DOMAIN" ]; then
             # Custom domain found, use it for routing.
             echo "[[routes]]" >> wrangler.toml
-            echo "pattern = \"${DEPLOY_ENV}.preview.${DOMAIN}/*\"" >> wrangler.toml
+            echo "pattern = \"${PREVIEW_HOST}.preview.${DOMAIN}/*\"" >> wrangler.toml
             echo "zone_name = \"${DOMAIN}\"" >> wrangler.toml
-            echo "WORKER_URL=${DEPLOY_ENV}.preview.${DOMAIN}" >> $GITHUB_ENV
+            echo "WORKER_URL=${PREVIEW_HOST}.preview.${DOMAIN}" >> $GITHUB_ENV
           else
             # No custom domain, default to workers.dev and fetch subdomain.
             DOMAIN="workers.dev"
@@ -191,7 +199,7 @@ jobs:
               echo "Error: Could not fetch workers.dev subdomain via API. Please ensure the subdomain is enabled in the Cloudflare dashboard." >&2
               exit 1
             fi
-            echo "WORKER_URL=${DEPLOY_ENV}-${WORKER_NAME}.${SUBDOMAIN}.workers.dev" >> $GITHUB_ENV
+            echo "WORKER_URL=${PREVIEW_HOST}.${SUBDOMAIN}.workers.dev" >> $GITHUB_ENV
           fi
 
       - name: Verify src/index.js exists
