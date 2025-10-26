@@ -8,7 +8,7 @@ This template bundles a minimal Worker that reads from a Cloudflare D1 database 
 
 | Area | What it demonstrates |
 | --- | --- |
-| Worker implementation (`src/index.js`) | Serves an HTML greeting from D1 when the binding exists and falls back to a configurable message when it does not. The page clearly labels whether the data came from the database and surfaces any warnings. |
+| Worker implementation (`src/index.js`) | See `src/README.md` for notes on replacing the demo Worker with your own implementation. |
 | Database migrations (`migrations/*.sql`) | Applies schema changes (sample `greetings` table included) through Wrangler so every deployment runs against known migrations. |
 | Deployment workflow (`.github/workflows/deploy.yml`) | Creates or reuses the target Worker and D1 database, applies SQL migrations, deploys preview environments for pull requests, deploys `main` to production, and comments the preview URL back on the PR. |
 | Cleanup workflow (`.github/workflows/cleanup.yml`) | Deletes the preview Worker + D1 database when a pull request closes or a branch is deleted so environments do not pile up. |
@@ -51,12 +51,6 @@ Closing a pull request or deleting a branch runs the cleanup workflow. It mirror
 3. Provision a database with `npx wrangler d1 create <db-name>` and add the binding to a local `wrangler.toml` (see the generated version in CI for reference).
 4. Apply migrations locally via `npx wrangler d1 execute <db-name> --file=migrations/0001_create_greetings.sql`.
 5. Run `npx wrangler dev` to test the Worker with the bound database.
-
-## Worker behavior in depth
-
-The Worker extracts request metadata to describe where the greeting was served from, escapes all HTML to avoid injection, and gracefully falls back when the database is unavailable. Errors return a styled HTML diagnostic page rather than a bare JSON payload so incidents are easier to spot when browsing directly. 
-
-See `src/README.md` for notes on replacing the demo Worker with your own implementation.
 
 ## Troubleshooting
 
