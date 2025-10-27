@@ -1,0 +1,102 @@
+name: Update README preview badge
+
+on:
+  workflow_dispatch:
+    inputs:
+      worker_url:
+        description: 'Worker host or URL to link from the README badge (with or without protocol).'
+        required: true
+      badge_label:
+        description: 'Label to display on the preview badge.'
+        required: false
+        default: production
+  workflow_call:
+    inputs:
+      worker_url:
+        description: 'Worker host (without protocol) to link from the README badge.'
+        required: true
+        type: string
+      badge_label:
+        description: 'Label to display on the preview badge.'
+        required: true
+        type: string
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Update preview badge in README
+        env:
+          RAW_WORKER_URL: ${{ inputs.worker_url }}
+          RAW_BADGE_LABEL: ${{ inputs.badge_label }}
+        run: |
+          python3 - <<'PY'
+import os
+import urllib.parse
+
+raw_worker_url = (os.environ.get("RAW_WORKER_URL") or "").strip()
+raw_badge_label = (os.environ.get("RAW_BADGE_LABEL") or "").strip()
+
+if not raw_worker_url:
+    print("Worker URL input is empty; skipping README update.")
+    raise SystemExit(0)
+
+parsed = urllib.parse.urlparse(raw_worker_url)
+if parsed.scheme in {"http", "https"} and parsed.netloc:
+    host = parsed.netloc
+else:
+    host = raw_worker_url
+
+host = host.strip().strip('/')
+if not host:
+    print("Resolved worker host is empty; skipping README update.")
+    raise SystemExit(0)
+
+badge_label = raw_badge_label.strip() or "production"
+badge_label_for_badge = urllib.parse.quote(badge_label, safe="-_.~")
+preview_url = f"https://{host}"
+encoded_url = urllib.parse.quote(preview_url, safe="")
+badge = f"[![Preview](https://img.shields.io/badge/preview-{badge_label_for_badge}-purple?link={encoded_url})]({preview_url}/)"
+
+start = "<!-- PREVIEW_BADGE_START -->"
+end = "<!-- PREVIEW_BADGE_END -->"
+path = "README.md"
+
+with open(path, "r", encoding="utf-8") as fh:
+    contents = fh.read()
+
+if start not in contents or end not in contents:
+    raise SystemExit("README markers for preview badge are missing.")
+
+before, remainder = contents.split(start, 1)
+middle, after = remainder.split(end, 1)
+middle = "\n" + badge + "\n"
+
+updated = before + start + middle + end + after
+
+with open(path, "w", encoding="utf-8") as fh:
+    fh.write(updated)
+
+with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as envfile:
+    envfile.write(f"BADGE_LABEL={badge_label}\n")
+PY
+
+      - name: Commit README update
+        run: |
+          if git diff --quiet README.md; then
+            echo "README already reflects current badge."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git commit -m "docs: update preview badge for ${BADGE_LABEL}"
+          git push

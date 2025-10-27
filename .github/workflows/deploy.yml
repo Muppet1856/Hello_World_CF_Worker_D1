@@ -34,6 +34,9 @@ jobs:
     # Job Configuration:
     # This job handles the deployment process for both production and preview environments.
     runs-on: ubuntu-latest  # Uses the latest Ubuntu runner for consistency and compatibility with required tools.
+    outputs:
+      worker_url: ${{ steps.worker_metadata.outputs.worker_url }}
+      badge_label: ${{ steps.worker_metadata.outputs.badge_label }}
     permissions:
       issues: write
       pull-requests: write
@@ -341,15 +344,17 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}  # Authenticates with Cloudflare.
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}  # Specifies the account for deployment.
 
-      - name: Update README preview badge
-        # Purpose: Writes the current preview or production URL back to README.md using a shields.io badge.
-        if: github.event_name == 'push'
+      - name: Export worker metadata
+        id: worker_metadata
         env:
           WORKER_URL: ${{ env.WORKER_URL }}
           DEPLOY: ${{ env.DEPLOY }}
         run: |
           if [ -z "$WORKER_URL" ]; then
-            echo "WORKER_URL is not set. Skipping README update."
+            {
+              echo "worker_url="
+              echo "badge_label="
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -359,50 +364,10 @@ jobs:
             BADGE_LABEL="$DEPLOY"
           fi
 
-          PREVIEW_URL="https://${WORKER_URL}"
-
-          export PREVIEW_URL BADGE_LABEL
-
-          python3 - <<'PY'
-import os
-import urllib.parse
-
-preview_url = os.environ["PREVIEW_URL"]
-badge_label = os.environ["BADGE_LABEL"]
-
-encoded = urllib.parse.quote(preview_url, safe="")
-badge = f"[![Preview](https://img.shields.io/badge/preview-{badge_label}-purple?link={encoded})]({preview_url}/)"
-
-start = "<!-- PREVIEW_BADGE_START -->"
-end = "<!-- PREVIEW_BADGE_END -->"
-path = "README.md"
-
-with open(path, "r", encoding="utf-8") as fh:
-    contents = fh.read()
-
-if start not in contents or end not in contents:
-    raise SystemExit("README markers for preview badge are missing.")
-
-before, remainder = contents.split(start, 1)
-middle, after = remainder.split(end, 1)
-middle = "\n" + badge + "\n"
-
-updated = before + start + middle + end + after
-
-with open(path, "w", encoding="utf-8") as fh:
-    fh.write(updated)
-PY
-
-          if git diff --quiet README.md; then
-            echo "README already reflects current badge."
-            exit 0
-          fi
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add README.md
-          git commit -m "docs: update preview badge for ${BADGE_LABEL}" || exit 0
-          git push
+          {
+            echo "worker_url=${WORKER_URL}"
+            echo "badge_label=${BADGE_LABEL}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Debug Variables
         if: github.event_name == 'pull_request'
@@ -427,3 +392,13 @@ PY
               issue_number: prNumber,
               body: `Preview Worker deployed at https://${previewUrl}`
             });
+
+  update-preview-badge:
+    name: Update README preview badge
+    needs: deploy
+    if: github.event_name == 'push' && needs.deploy.outputs.worker_url != ''
+    uses: ./.github/workflows/update-preview-badge.yml
+    with:
+      worker_url: ${{ needs.deploy.outputs.worker_url }}
+      badge_label: ${{ needs.deploy.outputs.badge_label }}
+    secrets: inherit
