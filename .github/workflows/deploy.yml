@@ -341,6 +341,69 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}  # Authenticates with Cloudflare.
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}  # Specifies the account for deployment.
 
+      - name: Update README preview badge
+        # Purpose: Writes the current preview or production URL back to README.md using a shields.io badge.
+        if: github.event_name == 'push'
+        env:
+          WORKER_URL: ${{ env.WORKER_URL }}
+          DEPLOY: ${{ env.DEPLOY }}
+        run: |
+          if [ -z "$WORKER_URL" ]; then
+            echo "WORKER_URL is not set. Skipping README update."
+            exit 0
+          fi
+
+          if [ -z "$DEPLOY" ]; then
+            BADGE_LABEL="production"
+          else
+            BADGE_LABEL="$DEPLOY"
+          fi
+
+          PREVIEW_URL="https://${WORKER_URL}"
+
+          export PREVIEW_URL BADGE_LABEL
+
+          python3 - <<'PY'
+import os
+import urllib.parse
+
+preview_url = os.environ["PREVIEW_URL"]
+badge_label = os.environ["BADGE_LABEL"]
+
+encoded = urllib.parse.quote(preview_url, safe="")
+badge = f"[![Preview](https://img.shields.io/badge/preview-{badge_label}-purple?link={encoded})]({preview_url}/)"
+
+start = "<!-- PREVIEW_BADGE_START -->"
+end = "<!-- PREVIEW_BADGE_END -->"
+path = "README.md"
+
+with open(path, "r", encoding="utf-8") as fh:
+    contents = fh.read()
+
+if start not in contents or end not in contents:
+    raise SystemExit("README markers for preview badge are missing.")
+
+before, remainder = contents.split(start, 1)
+middle, after = remainder.split(end, 1)
+middle = "\n" + badge + "\n"
+
+updated = before + start + middle + end + after
+
+with open(path, "w", encoding="utf-8") as fh:
+    fh.write(updated)
+PY
+
+          if git diff --quiet README.md; then
+            echo "README already reflects current badge."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git commit -m "docs: update preview badge for ${BADGE_LABEL}" || exit 0
+          git push
+
       - name: Debug Variables
         if: github.event_name == 'pull_request'
         run: |
