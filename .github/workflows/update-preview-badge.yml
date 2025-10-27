@@ -31,7 +31,7 @@ jobs:
           WORKER_NAME: ${{ vars.WORKER_NAME }}
           INPUT_BADGE_LABEL: ${{ inputs.badge_label }}
         run: |
-          python3 - <<'PY'
+          python3 <<'PY'
 import json
 import os
 import re
