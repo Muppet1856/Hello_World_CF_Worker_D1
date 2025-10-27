@@ -2,8 +2,8 @@
 # This workflow automates the deployment of a Cloudflare Worker integrated with a D1 database.
 # It handles three scenarios:
 # 1. Production deployment: Triggered by pushes to the 'main' branch (e.g., after PR merges).
-# 2. Preview deployments: Triggered by pushes to non-main branches or pull requests (PRs) targeting any branch.
-# 3. Cleanup: Removes preview Workers and D1 databases when PRs are closed.
+# 2. Branch preview deployments: Triggered by pushes or new branches that are not associated with an open PR.
+# 3. PR preview deployments: Triggered by pull requests (PRs) targeting the 'main' branch.
 # Preview URLs follow the format pr-<number>-<WORKER_NAME>.<subdomain>.workers.dev, where WORKER_NAME is set via repository variables.
 # The workflow avoids hardcoding D1 database limits by using a try-create approach to detect limit breaches dynamically.
 
@@ -11,23 +11,29 @@ name: Deploy to Cloudflare Worker with D1
 
 # Event Triggers:
 # The workflow is triggered by:
-# - Push events to the 'main' branch for production deployments.
-# - Pull request events (opened or synchronized) targeting any branch for preview deployments.
+# - Push events to any branch (production deploys only run for main; other branches deploy previews when no PR is open).
+# - Pull request events (opened or synchronized) targeting the 'main' branch for preview deployments.
+# - Branch create events so a preview can be provisioned immediately.
 on:
   push:
     branches:
       - '**'
-    paths-ignore:  # Ignore changes in .github directory
-      - '**/.github/**'  # Or use '.github/**' for direct contents only
-      - '**/README.md'  # Ignores README.md files in any directory
+    paths-ignore:
+      - '**/.github/**'
+      - '**/README.md'
   pull_request:
-    paths-ignore:  # Ignore changes in .github directory
-      - '**/.github/**'  # Or use '.github/**' for direct contents only
-      - '**/README.md'  # Ignores README.md files in any directory
-    types: [opened, synchronize]  # Captures PR creation and updates for deployment.
+    paths-ignore:
+      - '**/.github/**'
+      - '**/README.md'
+    types: [opened, synchronize]
   create:
     branches:
-      - '**'  # Triggers when new branches are created so previews can be provisioned immediately.
+      - '**'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   deploy:
@@ -53,22 +59,10 @@ jobs:
             exit 1
           fi
 
-      - name: Set up Node.js
-        # Purpose: Configures the Node.js environment required for running Wrangler commands.
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'  # Specifies Node.js version 20, compatible with Wrangler 4.45.0.
-
-      - name: Install dependencies
-        # Purpose: Installs Wrangler and jq, which are needed for Worker deployment and JSON parsing.
-        run: |
-          # Installs Wrangler version 4 as a development dependency for managing Cloudflare Workers.
-          npm install wrangler@4 --save-dev
-          # Updates the package list and installs jq for processing JSON output from Wrangler and API calls.
-          sudo apt update -qq && sudo apt install -y jq -qq
-
       - name: Set DEPLOY variable
         # Purpose: Determines the deployment mode (production or preview) based on the event and branch.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           sanitize() {
             local raw="$1"
@@ -90,17 +84,45 @@ jobs:
           elif [ "${{ github.event_name }}" == "push" ] && [ "${{ github.ref_name }}" == "main" ]; then
             echo "DEPLOY=" >> $GITHUB_ENV
           # Logic for Branch Pushes (Preview deployments):
-          # For pushes to non-main branches, use a sanitized branch name for DEPLOY.
+          # For pushes to non-main branches without open PRs, use a sanitized branch name for DEPLOY.
           elif [ "${{ github.event_name }}" == "push" ]; then
-            SANITIZED_BRANCH=$(sanitize "${{ github.ref_name }}")
-            echo "DEPLOY=$SANITIZED_BRANCH" >> $GITHUB_ENV
-            echo "NEWBRANCH=true" >> $GITHUB_ENV
+            if [ -z "${GITHUB_TOKEN:-}" ]; then
+              echo "Error: GITHUB_TOKEN is not available for branch deployment detection." >&2
+              exit 1
+            fi
+            API_URL="https://api.github.com/repos/${{ github.repository }}/pulls?head=${{ github.repository_owner }}:${{ github.ref_name }}&state=open"
+            echo "Checking for open pull requests via ${API_URL}"
+            RESPONSE=$(curl -sS -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "$API_URL")
+            if [ -z "$RESPONSE" ]; then
+              echo "Error: Empty response when querying pull requests for branch ${{ github.ref_name }}." >&2
+              exit 1
+            fi
+            if echo "$RESPONSE" | grep -q '"message"'; then
+              echo "Error: Unexpected GitHub API response when checking pull requests: $RESPONSE" >&2
+              exit 1
+            fi
+            OPEN_COUNT=0
+            if echo "$RESPONSE" | grep -q '"number"'; then
+              OPEN_COUNT=$(echo "$RESPONSE" | grep -c '"number"')
+              echo "Branch ${{ github.ref_name }} has $OPEN_COUNT open pull request(s); skipping direct branch deployment in favor of PR preview." >&2
+              echo "DEPLOY_SKIP=true" >> $GITHUB_ENV
+            else
+              SANITIZED_BRANCH=$(sanitize "${{ github.ref_name }}")
+              echo "DEPLOY=$SANITIZED_BRANCH" >> $GITHUB_ENV
+              echo "NEWBRANCH=true" >> $GITHUB_ENV
+            fi
           # Logic for Branch Creations:
           # For create events on branches, set DEPLOY using the new branch name so previews are provisioned immediately.
           elif [ "${{ github.event_name }}" == "create" ] && [ "${{ github.ref_type }}" == "branch" ]; then
             SANITIZED_BRANCH=$(sanitize "${{ github.ref_name }}")
             echo "DEPLOY=$SANITIZED_BRANCH" >> $GITHUB_ENV
             echo "NEWBRANCH=true" >> $GITHUB_ENV
+          # Manual reruns through workflow_dispatch default to production deploys on the checked-out ref.
+          elif [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "DEPLOY=" >> $GITHUB_ENV
           # Error Handling:
           # If none of the above conditions are met, logs an error and fails the workflow.
           else
@@ -108,8 +130,29 @@ jobs:
             exit 1
           fi
 
+      - name: Skip branch deployment for PR-managed branch
+        if: env.DEPLOY_SKIP == 'true'
+        run: |
+          echo "Branch has an open pull request; direct branch deployment will be skipped and the PR workflow will manage previews."
+
+      - name: Set up Node.js
+        if: env.DEPLOY_SKIP != 'true'
+        # Purpose: Configures the Node.js environment required for running Wrangler commands.
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'  # Specifies Node.js version 20, compatible with Wrangler 4.45.0.
+
+      - name: Install dependencies
+        if: env.DEPLOY_SKIP != 'true'
+        # Purpose: Installs Wrangler and jq, which are needed for Worker deployment and JSON parsing.
+        run: |
+          # Installs Wrangler version 4 as a development dependency for managing Cloudflare Workers.
+          npm install wrangler@4 --save-dev
+          # Updates the package list and installs jq for processing JSON output from Wrangler and API calls.
+          sudo apt update -qq && sudo apt install -y jq -qq
+
       - name: Setup worker (Main Deployment)
-        if: env.DEPLOY == ''  # Only runs for production deployments (when DEPLOY is empty).
+        if: env.DEPLOY_SKIP != 'true' && env.DEPLOY == ''  # Only runs for production deployments (when DEPLOY is empty).
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -169,7 +212,7 @@ jobs:
           fi
 
       - name: Setup worker (Preview Deployment)
-        if: env.DEPLOY != ''  # Only runs for preview deployments (when DEPLOY is set).
+        if: env.DEPLOY_SKIP != 'true' && env.DEPLOY != ''  # Only runs for preview deployments (when DEPLOY is set).
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -228,6 +271,7 @@ jobs:
 
       - name: Create or get D1 database and bind
         # Purpose: Creates or retrieves a D1 database and binds it to the Worker in wrangler.toml.
+        if: env.DEPLOY_SKIP != 'true'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}  # For Wrangler and API authentication.
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}  # For identifying the Cloudflare account.
@@ -307,6 +351,7 @@ jobs:
 
       - name: Apply D1 migrations
         # Purpose: Applies SQL migration files to the D1 database and verifies table creation.
+        if: env.DEPLOY_SKIP != 'true'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
@@ -336,6 +381,7 @@ jobs:
 
       - name: Deploy Worker
         # Purpose: Deploys the Worker to Cloudflare using the wrangler-action.
+        if: env.DEPLOY_SKIP != 'true'
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}  # Authenticates with Cloudflare.
