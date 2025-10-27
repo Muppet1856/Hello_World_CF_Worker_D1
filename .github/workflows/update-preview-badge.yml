@@ -199,7 +199,7 @@ jobs:
           awk "/${start}/,/${end}/" "$path"
 
           export BADGE="$badge"
-          if ! perl -0pi -e 's/(<!-- PREVIEW_BADGE_START -->).*(<!-- PREVIEW_BADGE_END -->)/$1\n$ENV{BADGE}\n$2/s' "$path"; then
+          if ! perl -0pi -e 's/(<!-- PREVIEW_BADGE_START -->)\s*.*?\s*(<!-- PREVIEW_BADGE_END -->)/$1$ENV{BADGE}$2/s' "$path"; then
             echo "Failed to update README preview badge." >&2
             exit 1
           fi
