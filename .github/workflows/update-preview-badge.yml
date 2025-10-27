@@ -161,71 +161,77 @@ jobs:
       - name: Update preview badge in README
         run: |
           set -euo pipefail
-
+      
           preview_url="${PREVIEW_URL:-}"
           echo "Preview URL from environment: ${preview_url}"
           if [ -z "$preview_url" ]; then
             echo "Preview URL is empty; skipping README update."
             exit 0
           fi
-
+      
           raw_badge_label="${BADGE_LABEL:-}"
           badge_label="$(printf '%s' "$raw_badge_label" | sed 's/^\s*//;s/\s*$//')"
           echo "Raw badge label from environment: '${raw_badge_label}'"
           if [ -z "$badge_label" ]; then
             badge_label="production"
           fi
-
+      
           echo "Resolved badge label for badge: ${badge_label}"
-
+      
           badge_label_for_badge=$(jq -rn --arg v "$badge_label" '$v|@uri')
           badge="[![Preview](https://img.shields.io/badge/preview-${badge_label_for_badge}-purple?link=${preview_url})](${preview_url})"
-
+      
           echo "Generated badge markdown: ${badge}"
-
+      
           start="<!-- PREVIEW_BADGE_START -->"
           end="<!-- PREVIEW_BADGE_END -->"
           path="README.md"
-
+      
           echo "Checking README (${path}) for preview badge markers."
-
+      
           if ! grep -q "$start" "$path" || ! grep -q "$end" "$path"; then
             echo "README markers for preview badge are missing." >&2
             exit 1
           fi
-
+      
           echo "Current README badge block before update:"
           awk "/${start}/,/${end}/" "$path"
-
+      
+          # Check if the badge is already correct
+          current_badge=$(awk "/${start}/,/${end}/" "$path" | grep -o "\[[^]]*\]([^)]*)" | tr -d '\r')
+          if [ "$current_badge" = "$badge" ]; then
+            echo "Badge already correct in README; skipping update."
+            exit 0
+          fi
+      
           export BADGE="$badge"
           if ! perl -0pi -e 's/(<!-- PREVIEW_BADGE_START -->)\s*.*?\s*(<!-- PREVIEW_BADGE_END -->)/$1$ENV{BADGE}$2/s' "$path"; then
             echo "Failed to update README preview badge." >&2
             exit 1
           fi
-
+      
           echo "README badge block after update:"
           awk "/${start}/,/${end}/" "$path"
-
-          # Escape special characters for grep
-          escaped_badge=$(printf '%s' "$badge" | sed 's/[][\.*^$(){}?+|/]/\\&/g')
+      
+          # Normalize line endings and verify badge
+          escaped_badge=$(printf '%s' "$badge" | tr -d '\r')
           if ! grep -qF -- "$escaped_badge" "$path"; then
             echo "README preview badge update did not apply as expected." >&2
             exit 1
           fi
-
+      
           {
             echo "BADGE_LABEL=${badge_label}"
           } >> "${GITHUB_ENV}"
-
-      - name: Commit README update
-        run: |
-          if git diff --quiet README.md; then
-            echo "README already reflects current badge."
-            exit 0
-          fi
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add README.md
-          git commit -m "docs: update preview badge for ${BADGE_LABEL}"
-          git push
+            - name: Commit README update
+              run: |
+                if git diff --quiet README.md; then
+                  echo "README already reflects current badge."
+                  exit 0
+                fi
+      
+                git config user.name "github-actions[bot]"
+                git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+                git add README.md
+                git commit -m "docs: update preview badge for ${BADGE_LABEL}"
+                git push
