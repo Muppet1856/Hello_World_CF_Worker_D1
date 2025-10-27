@@ -24,6 +24,11 @@ jobs:
         with:
           persist-credentials: true
 
+      - name: Ensure jq is available
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y jq -qq
+
       - name: Resolve worker URL and badge label
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -31,142 +36,153 @@ jobs:
           WORKER_NAME: ${{ vars.WORKER_NAME }}
           INPUT_BADGE_LABEL: ${{ inputs.badge_label }}
         run: |
-          python3 <<'PY'
-import json
-import os
-import re
-import sys
-import urllib.error
-import urllib.request
+          set -euo pipefail
 
-token = os.environ.get("CLOUDFLARE_API_TOKEN")
-account_id = os.environ.get("CLOUDFLARE_ACCOUNT_ID")
-worker_name = (os.environ.get("WORKER_NAME") or "").strip()
+          sanitize() {
+            local raw="$1"
+            local lowered="$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]')"
+            local slashes_replaced="$(printf '%s' "$lowered" | tr '/' '-')"
+            local cleaned
+            cleaned="$(printf '%s' "$slashes_replaced" | sed -e 's/[^a-z0-9-]/-/g' -e 's/--*/-/g' -e 's/^-//' -e 's/-$//')"
+            if [ -z "$cleaned" ]; then
+              cleaned="preview"
+            fi
+            printf '%s' "$cleaned"
+          }
 
-if not worker_name:
-    sys.exit("WORKER_NAME repository variable is required to resolve the worker URL.")
-if not token or not account_id:
-    sys.exit("CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID must be provided to resolve the worker URL.")
+          cf_get() {
+            local path="$1"
+            local response
+            response=$(curl -sS -X GET "https://api.cloudflare.com/client/v4/${path}" \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              -H "Content-Type: application/json")
+            if [ -z "$response" ]; then
+              echo "Cloudflare API call to ${path} returned an empty response." >&2
+              exit 1
+            fi
+            if [ "$(printf '%s' "$response" | jq -r '.success')" != "true" ]; then
+              echo "Cloudflare API call to ${path} did not succeed: $response" >&2
+              exit 1
+            fi
+            printf '%s' "$response"
+          }
 
+          if [ -z "${WORKER_NAME:-}" ]; then
+            echo "WORKER_NAME repository variable is required to resolve the worker URL." >&2
+            exit 1
+          fi
 
-def sanitize(raw: str) -> str:
-    cleaned = raw.strip().lower().replace("/", "-")
-    cleaned = re.sub(r"[^a-z0-9-]", "-", cleaned)
-    cleaned = re.sub(r"-+", "-", cleaned).strip("-")
-    return cleaned or "preview"
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ] || [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            echo "CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID must be provided to resolve the worker URL." >&2
+            exit 1
+          fi
 
+          event_name="${GITHUB_EVENT_NAME:-}"
+          ref_name="${GITHUB_REF_NAME:-}"
+          event_path="${GITHUB_EVENT_PATH:-}"
+          deploy_env=""
 
-def cf_get(path: str) -> dict:
-    url = f"https://api.cloudflare.com/client/v4/{path}"
-    req = urllib.request.Request(url)
-    req.add_header("Authorization", f"Bearer {token}")
-    req.add_header("Content-Type", "application/json")
-    try:
-        with urllib.request.urlopen(req) as resp:
-            data = json.load(resp)
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", "ignore")
-        sys.exit(f"Cloudflare API call to {path} failed with status {exc.code}: {detail}")
-    if not data.get("success", False):
-        sys.exit(f"Cloudflare API call to {path} did not succeed: {data}")
-    return data
+          if [ "$event_name" = "pull_request" ]; then
+            pr_number=""
+            if [ -f "$event_path" ]; then
+              pr_number=$(jq -r '(.number // .pull_request.number // empty)' "$event_path")
+            fi
+            if [ -z "$pr_number" ] || [ "$pr_number" = "null" ]; then
+              echo "Unable to determine pull request number from event payload." >&2
+              exit 1
+            fi
+            deploy_env=$(sanitize "pr-${pr_number}")
+          elif [ -n "$ref_name" ] && [ "$ref_name" != "main" ]; then
+            deploy_env=$(sanitize "$ref_name")
+          fi
 
+          domains_json=$(cf_get "accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/domains")
+          domain_host=$(printf '%s' "$domains_json" | jq -r '.result[]? | select(.hostname != null and .hostname != "") | .hostname' | head -n 1)
 
-event_name = os.environ.get("GITHUB_EVENT_NAME", "")
-ref_name = os.environ.get("GITHUB_REF_NAME", "")
-event_path = os.environ.get("GITHUB_EVENT_PATH", "")
-deploy_env = ""
+          if [ -n "$domain_host" ]; then
+            domain_host=$(printf '%s' "$domain_host" | sed 's/\s//g')
+            if [ -n "$deploy_env" ]; then
+              worker_host="${deploy_env}-${WORKER_NAME}.preview.${domain_host}"
+            else
+              worker_host="$domain_host"
+            fi
+          else
+            subdomain_json=$(cf_get "accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/subdomain")
+            subdomain=$(printf '%s' "$subdomain_json" | jq -r '.result.subdomain // empty')
+            if [ -z "$subdomain" ]; then
+              echo "Could not resolve workers.dev subdomain from Cloudflare API." >&2
+              exit 1
+            fi
+            if [ -n "$deploy_env" ]; then
+              worker_host="${deploy_env}-${WORKER_NAME}.${subdomain}.workers.dev"
+            else
+              worker_host="${WORKER_NAME}.${subdomain}.workers.dev"
+            fi
+          fi
 
-if event_name == "pull_request":
-    if event_path and os.path.exists(event_path):
-        with open(event_path, "r", encoding="utf-8") as fh:
-            payload = json.load(fh)
-        number = payload.get("number") or (payload.get("pull_request") or {}).get("number")
-    else:
-        number = None
-    if not number:
-        sys.exit("Unable to determine pull request number from event payload.")
-    deploy_env = sanitize(f"pr-{number}")
-elif ref_name and ref_name != "main":
-    deploy_env = sanitize(ref_name)
+          badge_label_override="${INPUT_BADGE_LABEL:-}"
+          if [ -n "$badge_label_override" ]; then
+            badge_label="$(printf '%s' "$badge_label_override" | sed 's/^\s*//;s/\s*$//')"
+          elif [ -n "$deploy_env" ]; then
+            badge_label="$deploy_env"
+          else
+            badge_label="production"
+          fi
 
-domains = cf_get(f"accounts/{account_id}/workers/domains")
-domain_host = ""
-for entry in domains.get("result", []):
-    host = (entry or {}).get("hostname")
-    if host:
-        domain_host = host.strip()
-    if domain_host:
-        break
+          preview_url="https://${worker_host}"
 
-if domain_host:
-    if deploy_env:
-        worker_host = f"{deploy_env}-{worker_name}.preview.{domain_host}"
-    else:
-        worker_host = domain_host
-else:
-    subdomain_data = cf_get(f"accounts/{account_id}/workers/subdomain")
-    subdomain = (subdomain_data.get("result") or {}).get("subdomain", "").strip()
-    if not subdomain:
-        sys.exit("Could not resolve workers.dev subdomain from Cloudflare API.")
-    if deploy_env:
-        worker_host = f"{deploy_env}-{worker_name}.{subdomain}.workers.dev"
-    else:
-        worker_host = f"{worker_name}.{subdomain}.workers.dev"
+          {
+            echo "WORKER_HOST=${worker_host}"
+            echo "PREVIEW_URL=${preview_url}"
+            echo "BADGE_LABEL=${badge_label}"
+          } >> "${GITHUB_ENV}"
 
-badge_label_override = (os.environ.get("INPUT_BADGE_LABEL") or "").strip()
-badge_label = badge_label_override or ("production" if not deploy_env else deploy_env)
-preview_url = f"https://{worker_host}"
-
-print(f"Resolved worker host: {worker_host}")
-print(f"Using badge label: {badge_label}")
-
-with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as envfile:
-    envfile.write(f"WORKER_HOST={worker_host}\n")
-    envfile.write(f"PREVIEW_URL={preview_url}\n")
-    envfile.write(f"BADGE_LABEL={badge_label}\n")
-PY
+          echo "Resolved worker host: ${worker_host}"
+          echo "Using badge label: ${badge_label}"
 
       - name: Update preview badge in README
         run: |
-          python3 - <<'PY'
-import os
-import urllib.parse
+          set -euo pipefail
 
-preview_url = (os.environ.get("PREVIEW_URL") or "").strip()
-raw_badge_label = (os.environ.get("BADGE_LABEL") or "").strip()
+          preview_url="${PREVIEW_URL:-}"
+          if [ -z "$preview_url" ]; then
+            echo "Preview URL is empty; skipping README update."
+            exit 0
+          fi
 
-if not preview_url:
-    print("Preview URL is empty; skipping README update.")
-    raise SystemExit(0)
+          raw_badge_label="${BADGE_LABEL:-}"
+          badge_label="$(printf '%s' "$raw_badge_label" | sed 's/^\s*//;s/\s*$//')"
+          if [ -z "$badge_label" ]; then
+            badge_label="production"
+          fi
 
-badge_label = raw_badge_label.strip() or "production"
-badge_label_for_badge = urllib.parse.quote(badge_label, safe="-_.~")
-encoded_url = urllib.parse.quote(preview_url, safe="")
-badge = f"[![Preview](https://img.shields.io/badge/preview-{badge_label_for_badge}-purple?link={encoded_url})]({preview_url}/)"
+          badge_label_for_badge=$(jq -rn --arg v "$badge_label" '$v|@uri')
+          encoded_url=$(jq -rn --arg v "$preview_url" '$v|@uri')
+          badge="[![Preview](https://img.shields.io/badge/preview-${badge_label_for_badge}-purple?link=${encoded_url})](${preview_url}/)"
 
-start = "<!-- PREVIEW_BADGE_START -->"
-end = "<!-- PREVIEW_BADGE_END -->"
-path = "README.md"
+          start="<!-- PREVIEW_BADGE_START -->"
+          end="<!-- PREVIEW_BADGE_END -->"
+          path="README.md"
 
-with open(path, "r", encoding="utf-8") as fh:
-    contents = fh.read()
+          if ! grep -q "$start" "$path" || ! grep -q "$end" "$path"; then
+            echo "README markers for preview badge are missing." >&2
+            exit 1
+          fi
 
-if start not in contents or end not in contents:
-    raise SystemExit("README markers for preview badge are missing.")
+          export BADGE="$badge"
+          if ! perl -0pi -e 's/(<!-- PREVIEW_BADGE_START -->).*(<!-- PREVIEW_BADGE_END -->)/$1\n$ENV{BADGE}\n$2/s' "$path"; then
+            echo "Failed to update README preview badge." >&2
+            exit 1
+          fi
 
-before, remainder = contents.split(start, 1)
-middle, after = remainder.split(end, 1)
-middle = "\n" + badge + "\n"
+          if ! grep -q "$badge" "$path"; then
+            echo "README preview badge update did not apply as expected." >&2
+            exit 1
+          fi
 
-updated = before + start + middle + end + after
-
-with open(path, "w", encoding="utf-8") as fh:
-    fh.write(updated)
-
-with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as envfile:
-    envfile.write(f"BADGE_LABEL={badge_label}\n")
-PY
+          {
+            echo "BADGE_LABEL=${badge_label}"
+          } >> "${GITHUB_ENV}"
 
       - name: Commit README update
         run: |
