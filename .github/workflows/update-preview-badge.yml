@@ -179,8 +179,7 @@ jobs:
           echo "Resolved badge label for badge: ${badge_label}"
 
           badge_label_for_badge=$(jq -rn --arg v "$badge_label" '$v|@uri')
-          encoded_url=$(jq -rn --arg v "$preview_url" '$v|@uri')
-          badge="[![Preview](https://img.shields.io/badge/preview-${badge_label_for_badge}-purple?link=${encoded_url})](${preview_url})"
+          badge="[![Preview](https://img.shields.io/badge/preview-${badge_label_for_badge}-purple?link=${preview_url})](${preview_url})"
 
           echo "Generated badge markdown: ${badge}"
 
