@@ -1,6 +1,6 @@
 # Cloudflare Worker + D1 starter with end-to-end automation
 
-[![GitHub Release](https://img.shields.io/github/v/release/Muppet1856/Hello_World_CF_Worker_D1)](https://github.com/Muppet1856/Hello_World_CF_Worker_D1/releases) [![GitHub License](https://img.shields.io/github/license/Muppet1856/Hello_World_CF_Worker_D1)](https://github.com/Muppet1856/Hello_World_CF_Worker_D1/blob/main/LICENSE) [![GitHub Issues or Pull Requests](https://img.shields.io/github/issues/Muppet1856/Hello_World_CF_Worker_D1)](https://github.com/Muppet1856/Hello_World_CF_Worker_D1/issues) <!-- PREVIEW_BADGE_START -->[![Preview](https://img.shields.io/badge/preview-production-purple?link=https://hello-world.zellen.workers.dev)](https://hello-world.zellen.workers.dev)<!-- PREVIEW_BADGE_END -->
+[![GitHub Release](https://img.shields.io/github/v/release/Muppet1856/Hello_World_CF_Worker_D1)](https://github.com/Muppet1856/Hello_World_CF_Worker_D1/releases) [![GitHub License](https://img.shields.io/github/license/Muppet1856/Hello_World_CF_Worker_D1)](https://github.com/Muppet1856/Hello_World_CF_Worker_D1/blob/main/LICENSE) [![GitHub Issues or Pull Requests](https://img.shields.io/github/issues/Muppet1856/Hello_World_CF_Worker_D1)](https://github.com/Muppet1856/Hello_World_CF_Worker_D1/issues) <!-- PREVIEW_BADGE_START -->[![Preview](https://img.shields.io/badge/preview-codex-remove-unnecessary-domain-variable-purple?link=https://codex-remove-unnecessary-domain-variable-hello-world.zellen.workers.dev)](https://codex-remove-unnecessary-domain-variable-hello-world.zellen.workers.dev)<!-- PREVIEW_BADGE_END -->
 
 This template bundles a minimal Worker that reads from a Cloudflare D1 database **and** the automation needed to provision, migrate, deploy, and clean up that infrastructure. Use it to study or adopt the workflows that keep preview and production environments in sync with your GitHub branches.
 
@@ -20,7 +20,7 @@ This template bundles a minimal Worker that reads from a Cloudflare D1 database 
 The deploy workflow reacts to every push and pull request:
 
 1. **Detects the environment** – `DEPLOY` is blank for production (pushes to `main`), `pr-<number>` for PRs, and a sanitized branch name for other pushes.
-2. **Generates `wrangler.toml` on the fly** – The production job writes the file from scratch, injects the Worker name, and dynamically adds a D1 binding once the database is located or created.
+2. **Generates `wrangler.toml` on the fly** – The production job writes the file from scratch, injects the Worker name, dynamically adds a D1 binding once the database is located or created, and auto-discovers any configured custom domain (falling back to the account's `workers.dev` subdomain when none exists).
 3. **Provisions D1** – Uses Wrangler CLI to list existing databases, create preview databases as needed, and export `DB_NAME`/`DB_ID` for downstream steps.
 4. **Runs migrations** – Executes every SQL file under `migrations/` with `wrangler d1 execute` and verifies that tables were created successfully.
 5. **Deploys and reports** – Publishes through `cloudflare/wrangler-action`, captures the generated preview URL, and comments it on the pull request.
@@ -33,7 +33,6 @@ Key repository configuration expected by the workflow:
 | `CLOUDFLARE_ACCOUNT_ID` | Secret | Numeric Cloudflare account id. |
 | `WORKER_NAME` | Variable | Base Worker name (e.g. `hello-world-cf-worker-d1`). |
 | `BINDING_NAME` | Variable | D1 binding name used by the Worker (`HELLO_WORLD_DB` by default). |
-| `DOMAIN` | Variable (optional) | Custom domain for preview URLs if you do not want the default `workers.dev` hostname. |
 | `USE_PRODUCTION_DB_ON_PREVIEW` | Variable (optional) | When `true`, previews reuse the production database; otherwise previews get isolated databases. |
 
 ### Cleanup (`.github/workflows/cleanup.yml`)
