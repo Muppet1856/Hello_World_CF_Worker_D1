@@ -181,7 +181,7 @@ jobs:
           badge_label_for_badge=$(jq -rn --arg v "$badge_label" '$v|@uri')
           badge="[![Preview](https://img.shields.io/badge/preview-${badge_label_for_badge}-purple?link=${preview_url})](${preview_url})"
       
-          echo "Generated badge markdown: ${badge}"
+          echo "Generated badge markdown: '${badge}'"
       
           start="<!-- PREVIEW_BADGE_START -->"
           end="<!-- PREVIEW_BADGE_END -->"
@@ -199,6 +199,7 @@ jobs:
       
           # Extract current badge with precise matching
           current_badge=$(awk "/${start}/{flag=1; next} /${end}/{flag=0} flag" "$path" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          echo "Extracted current badge: '${current_badge}'"
           if [ "$current_badge" = "$badge" ]; then
             echo "Badge already correct in README; skipping update."
             exit 0
@@ -214,8 +215,11 @@ jobs:
           awk "/${start}/,/${end}/" "$path"
       
           # Normalize and verify badge
-          escaped_badge=$(printf '%s' "$badge" | tr -d '\r\n' | sed 's/[][\.*^$(){}?+|/]/\\&/g')
+          escaped_badge=$(printf '%s' "$badge" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          echo "Escaped badge for verification: '${escaped_badge}'"
           if ! grep -qF "$escaped_badge" "$path"; then
+            echo "README content for debugging:"
+            cat "$path"
             echo "README preview badge update did not apply as expected." >&2
             exit 1
           fi
