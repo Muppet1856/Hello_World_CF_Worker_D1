@@ -82,6 +82,9 @@ jobs:
           event_path="${GITHUB_EVENT_PATH:-}"
           deploy_env=""
 
+          echo "GitHub event: ${event_name}" 
+          echo "Git ref name: ${ref_name}" 
+
           if [ "$event_name" = "pull_request" ]; then
             pr_number=""
             if [ -f "$event_path" ]; then
@@ -96,11 +99,18 @@ jobs:
             deploy_env=$(sanitize "$ref_name")
           fi
 
+          if [ -n "$deploy_env" ]; then
+            echo "Computed deploy environment: ${deploy_env}"
+          else
+            echo "Using production environment (no deploy env computed)."
+          fi
+
           domains_json=$(cf_get "accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/domains")
           domain_host=$(printf '%s' "$domains_json" | jq -r '.result[]? | select(.hostname != null and .hostname != "") | .hostname' | head -n 1)
 
           if [ -n "$domain_host" ]; then
             domain_host=$(printf '%s' "$domain_host" | sed 's/\s//g')
+            echo "Primary domain host from API: ${domain_host}"
             if [ -n "$deploy_env" ]; then
               worker_host="${deploy_env}-${WORKER_NAME}.preview.${domain_host}"
             else
@@ -113,6 +123,7 @@ jobs:
               echo "Could not resolve workers.dev subdomain from Cloudflare API." >&2
               exit 1
             fi
+            echo "Resolved workers.dev subdomain: ${subdomain}"
             if [ -n "$deploy_env" ]; then
               worker_host="${deploy_env}-${WORKER_NAME}.${subdomain}.workers.dev"
             else
@@ -122,12 +133,19 @@ jobs:
 
           badge_label_override="${INPUT_BADGE_LABEL:-}"
           if [ -n "$badge_label_override" ]; then
+            echo "Badge label override supplied: ${badge_label_override}"
+          else
+            echo "No badge label override supplied."
+          fi
+          if [ -n "$badge_label_override" ]; then
             badge_label="$(printf '%s' "$badge_label_override" | sed 's/^\s*//;s/\s*$//')"
           elif [ -n "$deploy_env" ]; then
             badge_label="$deploy_env"
           else
             badge_label="production"
           fi
+
+          echo "Sanitized badge label: ${badge_label}"
 
           preview_url="https://${worker_host}"
 
@@ -145,6 +163,7 @@ jobs:
           set -euo pipefail
 
           preview_url="${PREVIEW_URL:-}"
+          echo "Preview URL from environment: ${preview_url}"
           if [ -z "$preview_url" ]; then
             echo "Preview URL is empty; skipping README update."
             exit 0
@@ -152,28 +171,41 @@ jobs:
 
           raw_badge_label="${BADGE_LABEL:-}"
           badge_label="$(printf '%s' "$raw_badge_label" | sed 's/^\s*//;s/\s*$//')"
+          echo "Raw badge label from environment: '${raw_badge_label}'"
           if [ -z "$badge_label" ]; then
             badge_label="production"
           fi
+
+          echo "Resolved badge label for badge: ${badge_label}"
 
           badge_label_for_badge=$(jq -rn --arg v "$badge_label" '$v|@uri')
           encoded_url=$(jq -rn --arg v "$preview_url" '$v|@uri')
           badge="[![Preview](https://img.shields.io/badge/preview-${badge_label_for_badge}-purple?link=${encoded_url})](${preview_url})"
 
+          echo "Generated badge markdown: ${badge}"
+
           start="<!-- PREVIEW_BADGE_START -->"
           end="<!-- PREVIEW_BADGE_END -->"
           path="README.md"
+
+          echo "Checking README (${path}) for preview badge markers."
 
           if ! grep -q "$start" "$path" || ! grep -q "$end" "$path"; then
             echo "README markers for preview badge are missing." >&2
             exit 1
           fi
 
+          echo "Current README badge block before update:"
+          awk "/${start}/,/${end}/" "$path"
+
           export BADGE="$badge"
           if ! perl -0pi -e 's/(<!-- PREVIEW_BADGE_START -->).*(<!-- PREVIEW_BADGE_END -->)/$1\n$ENV{BADGE}\n$2/s' "$path"; then
             echo "Failed to update README preview badge." >&2
             exit 1
           fi
+
+          echo "README badge block after update:"
+          awk "/${start}/,/${end}/" "$path"
 
           if ! grep -q "$badge" "$path"; then
             echo "README preview badge update did not apply as expected." >&2
