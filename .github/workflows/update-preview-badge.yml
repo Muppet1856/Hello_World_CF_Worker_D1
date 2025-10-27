@@ -158,7 +158,7 @@ jobs:
 
           badge_label_for_badge=$(jq -rn --arg v "$badge_label" '$v|@uri')
           encoded_url=$(jq -rn --arg v "$preview_url" '$v|@uri')
-          badge="[![Preview](https://img.shields.io/badge/preview-${badge_label_for_badge}-purple?link=${encoded_url})](${preview_url}/)"
+          badge="[![Preview](https://img.shields.io/badge/preview-${badge_label_for_badge}-purple?link=${encoded_url})](${preview_url})"
 
           start="<!-- PREVIEW_BADGE_START -->"
           end="<!-- PREVIEW_BADGE_END -->"
