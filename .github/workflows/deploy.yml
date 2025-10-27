@@ -34,9 +34,6 @@ jobs:
     # Job Configuration:
     # This job handles the deployment process for both production and preview environments.
     runs-on: ubuntu-latest  # Uses the latest Ubuntu runner for consistency and compatibility with required tools.
-    outputs:
-      worker_url: ${{ steps.worker_metadata.outputs.worker_url }}
-      badge_label: ${{ steps.worker_metadata.outputs.badge_label }}
     permissions:
       issues: write
       pull-requests: write
@@ -344,31 +341,6 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}  # Authenticates with Cloudflare.
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}  # Specifies the account for deployment.
 
-      - name: Export worker metadata
-        id: worker_metadata
-        env:
-          WORKER_URL: ${{ env.WORKER_URL }}
-          DEPLOY: ${{ env.DEPLOY }}
-        run: |
-          if [ -z "$WORKER_URL" ]; then
-            {
-              echo "worker_url="
-              echo "badge_label="
-            } >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if [ -z "$DEPLOY" ]; then
-            BADGE_LABEL="production"
-          else
-            BADGE_LABEL="$DEPLOY"
-          fi
-
-          {
-            echo "worker_url=${WORKER_URL}"
-            echo "badge_label=${BADGE_LABEL}"
-          } >> "$GITHUB_OUTPUT"
-
       - name: Debug Variables
         if: github.event_name == 'pull_request'
         run: |
@@ -392,13 +364,3 @@ jobs:
               issue_number: prNumber,
               body: `Preview Worker deployed at https://${previewUrl}`
             });
-
-  update-preview-badge:
-    name: Update README preview badge
-    needs: deploy
-    if: github.event_name == 'push' && needs.deploy.outputs.worker_url != ''
-    uses: ./.github/workflows/update-preview-badge.yml
-    with:
-      worker_url: ${{ needs.deploy.outputs.worker_url }}
-      badge_label: ${{ needs.deploy.outputs.badge_label }}
-    secrets: inherit
