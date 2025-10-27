@@ -206,7 +206,9 @@ jobs:
           echo "README badge block after update:"
           awk "/${start}/,/${end}/" "$path"
 
-          if ! grep -q "$badge" "$path"; then
+          # Escape special characters for grep
+          escaped_badge=$(printf '%s' "$badge" | sed 's/[][\.*^$(){}?+|/]/\\&/g')
+          if ! grep -qF -- "$escaped_badge" "$path"; then
             echo "README preview badge update did not apply as expected." >&2
             exit 1
           fi
