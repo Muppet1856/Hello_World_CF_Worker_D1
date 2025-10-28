@@ -1,19 +1,36 @@
 name: Deploy to Cloudflare Worker with D1
 
+# ──────────────────────────────────────────────────────────────
+# 1. AUTOMATIC TRIGGERS
+# ──────────────────────────────────────────────────────────────
 on:
+  # Production – push to main
   push:
-    branches: [ '**' ]
+    branches: [ main ]
     paths-ignore: [ '**/.github/**', '**/README.md' ]
+
+  # PR preview – opened or synchronized
   pull_request:
     types: [ opened, synchronize ]
     paths-ignore: [ '**/.github/**', '**/README.md' ]
-  create:
-    branches: [ '**' ]
+
+  # ──────────────────────────────────────────────────────────────
+  # 2. MANUAL RUN – pick any branch you want
+  # ──────────────────────────────────────────────────────────────
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to deploy (e.g. feature/login)'
+        required: true
+        default: ''
 
 concurrency:
   group: deploy-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
+# ──────────────────────────────────────────────────────────────
+# 3. JOB
+# ──────────────────────────────────────────────────────────────
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -22,16 +39,20 @@ jobs:
       pull-requests: write
 
     steps:
+      # ------------------------------------------------------------
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # For git rev-list to detect first commit
+          # For manual runs we need the exact branch the user selected
+          ref: ${{ github.event.inputs.branch || github.ref }}
 
+      # ------------------------------------------------------------
       - name: Verify src/index.js
         run: |
           [ -f "src/index.js" ] || (echo "Error: src/index.js missing" >&2; exit 1)
 
-      - name: Set DEPLOY_TYPE
+      # ------------------------------------------------------------
+      - name: Determine Deploy Type
         id: deploy
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -40,65 +61,38 @@ jobs:
             echo "$1" | tr '[:upper:]' '[:lower:]' | tr '/' '-' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//'
           }
 
-          BRANCH_REF="${{ github.ref }}"
-          BRANCH_NAME=$(echo "$BRANCH_REF" | sed 's|^refs/heads/||')
-
-          echo "Event: ${{ github.event_name }}"
-          echo "Ref: $BRANCH_REF | Branch: $BRANCH_NAME"
-
-          if [ "${{ github.event_name }}" == "pull_request" ]; then
-            NAME=$(sanitize "pr-${{ github.event.pull_request.number }}")
-            echo "type=pr" >> $GITHUB_OUTPUT
-            echo "name=$NAME" >> $GITHUB_OUTPUT
-            echo "DEBUG: PR preview deploy"
-
-          elif [ "${{ github.event_name }}" == "push" ] && [ "$BRANCH_NAME" == "main" ]; then
+          # 1. Production (push to main)
+          if [ "${{ github.event_name }}" == "push" ] && [ "${{ github.ref_name }}" == "main" ]; then
             echo "type=prod" >> $GITHUB_OUTPUT
             echo "name=" >> $GITHUB_OUTPUT
             echo "DEBUG: Production deploy"
 
-          elif [ "${{ github.event_name }}" == "create" ]; then
-            # Deploy on branch creation (if no PR)
-            RESPONSE=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
-              "https://api.github.com/repos/${{ github.repository }}/pulls?head=${{ github.repository_owner }}:${BRANCH_NAME}&state=open")
-            COUNT=$(echo "$RESPONSE" | jq '. | length // 0')
-            if [ "$COUNT" -gt 0 ]; then
-              echo "type=skip" >> $GITHUB_OUTPUT
-              echo "DEBUG: Skip create - PR exists"
-            else
-              NAME=$(sanitize "$BRANCH_NAME")
-              echo "type=branch" >> $GITHUB_OUTPUT
-              echo "name=$NAME" >> $GITHUB_OUTPUT
-              echo "DEBUG: Branch preview deploy"
-            fi
+          # 2. PR preview
+          elif [ "${{ github.event_name }}" == "pull_request" ]; then
+            NAME=$(sanitize "pr-${{ github.event.pull_request.number }}")
+            echo "type=pr" >> $GITHUB_OUTPUT
+            echo "name=$NAME" >> $GITHUB_OUTPUT
+            echo "DEBUG: PR preview #${{ github.event.pull_request.number }}"
 
-          elif [ "${{ github.event_name }}" == "push" ]; then
-            # Skip push if PR exists or first commit (create handled it)
-            if [ "${{ github.event.before }}" = "0000000000000000000000000000000000000000" ]; then
-              echo "type=skip" >> $GITHUB_OUTPUT
-              echo "DEBUG: Skip first push (create handled)"
-            else
-              RESPONSE=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
-                "https://api.github.com/repos/${{ github.repository }}/pulls?head=${{ github.repository_owner }}:${BRANCH_NAME}&state=open")
-              COUNT=$(echo "$RESPONSE" | jq '. | length // 0')
-              if [ "$COUNT" -gt 0 ]; then
-                echo "type=skip" >> $GITHUB_OUTPUT
-                echo "DEBUG: Skip push - PR exists"
-              else
-                NAME=$(sanitize "$BRANCH_NAME")
-                echo "type=branch" >> $GITHUB_OUTPUT
-                echo "name=$NAME" >> $GITHUB_OUTPUT
-                echo "DEBUG: Branch push deploy"
-              fi
+          # 3. Manual run (any branch)
+          elif [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            BRANCH="${{ github.event.inputs.branch }}"
+            if [ -z "$BRANCH" ]; then
+              echo "Error: No branch supplied to workflow_dispatch" >&2
+              exit 1
             fi
+            NAME=$(sanitize "$BRANCH")
+            echo "type=manual" >> $GITHUB_OUTPUT
+            echo "name=$NAME" >> $GITHUB_OUTPUT
+            echo "DEBUG: Manual deploy of branch $BRANCH"
 
           else
             echo "type=skip" >> $GITHUB_OUTPUT
           fi
 
-      # ————————————————————————
-      # 1. PRODUCTION DEPLOY
-      # ————————————————————————
+      # ------------------------------------------------------------
+      # 4. WRANGLER.TOML – Production
+      # ------------------------------------------------------------
       - name: Setup wrangler.toml (Production)
         if: steps.deploy.outputs.type == 'prod'
         env:
@@ -121,13 +115,12 @@ jobs:
           SUBDOMAIN=$(curl -s -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
             "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/workers/subdomain" \
             | jq -r '.result.subdomain // empty')
-
           [ -n "$SUBDOMAIN" ] || { echo "Error: No subdomain" >&2; exit 1; }
           echo "WORKER_URL=${WORKER_NAME}.${SUBDOMAIN}.workers.dev" >> $GITHUB_ENV
 
-      # ————————————————————————
-      # 2. PR PREVIEW DEPLOY
-      # ————————————————————————
+      # ------------------------------------------------------------
+      # 5. WRANGLER.TOML – PR Preview
+      # ------------------------------------------------------------
       - name: Setup wrangler.toml (PR)
         if: steps.deploy.outputs.type == 'pr'
         env:
@@ -151,15 +144,14 @@ jobs:
           SUBDOMAIN=$(curl -s -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
             "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/workers/subdomain" \
             | jq -r '.result.subdomain // empty')
-
           [ -n "$SUBDOMAIN" ] || { echo "Error: No subdomain" >&2; exit 1; }
           echo "WORKER_URL=${FINAL_NAME}.${SUBDOMAIN}.workers.dev" >> $GITHUB_ENV
 
-      # ————————————————————————
-      # 3. BRANCH PREVIEW DEPLOY
-      # ————————————————————————
-      - name: Setup wrangler.toml (Branch)
-        if: steps.deploy.outputs.type == 'branch'
+      # ------------------------------------------------------------
+      # 6. WRANGLER.TOML – Manual (bespoke) Branch
+      # ------------------------------------------------------------
+      - name: Setup wrangler.toml (Manual)
+        if: steps.deploy.outputs.type == 'manual'
         env:
           WORKER_NAME: ${{ vars.WORKER_NAME }}
         run: |
@@ -181,13 +173,12 @@ jobs:
           SUBDOMAIN=$(curl -s -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
             "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/workers/subdomain" \
             | jq -r '.result.subdomain // empty')
-
           [ -n "$SUBDOMAIN" ] || { echo "Error: No subdomain" >&2; exit 1; }
           echo "WORKER_URL=${FINAL_NAME}.${SUBDOMAIN}.workers.dev" >> $GITHUB_ENV
 
-      # ————————————————————————
-      # COMMON STEPS
-      # ————————————————————————
+      # ------------------------------------------------------------
+      # 7. COMMON STEPS (run for prod / pr / manual)
+      # ------------------------------------------------------------
       - name: Install dependencies
         if: steps.deploy.outputs.type != 'skip'
         run: |
