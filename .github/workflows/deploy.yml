@@ -42,16 +42,13 @@ jobs:
             NAME=$(sanitize "pr-${{ github.event.pull_request.number }}")
             echo "type=pr" >> $GITHUB_OUTPUT
             echo "name=$NAME" >> $GITHUB_OUTPUT
-
           elif [ "${{ github.event_name }}" == "push" ] && [ "${{ github.ref_name }}" == "main" ]; then
             echo "type=prod" >> $GITHUB_OUTPUT
             echo "name=" >> $GITHUB_OUTPUT
-
           elif [ "${{ github.event_name }}" == "push" ] || [ "${{ github.event_name }}" == "create" ]; then
             RESPONSE=$(curl -sH "Authorization: Bearer $GITHUB_TOKEN" \
               "https://api.github.com/repos/${{ github.repository }}/pulls?head=${{ github.repository_owner }}:${{ github.ref_name }}&state=open")
             COUNT=$(echo "$RESPONSE" | jq '. | length')
-
             if [ "$COUNT" -gt 0 ]; then
               echo "type=skip" >> $GITHUB_OUTPUT
             else
@@ -59,7 +56,6 @@ jobs:
               echo "type=branch" >> $GITHUB_OUTPUT
               echo "name=$NAME" >> $GITHUB_OUTPUT
             fi
-
           else
             echo "type=skip" >> $GITHUB_OUTPUT
           fi
@@ -76,7 +72,8 @@ jobs:
           name = "$WORKER_NAME"
           main = "src/index.js"
           compatibility_date = "$(date +%Y-%m-%d)"
-EOF
+          EOF
+
           # CONDITIONAL ASSETS
           if [ -d "public" ]; then
             echo 'assets = { directory = "public" }' >> wrangler.toml
@@ -84,10 +81,9 @@ EOF
           else
             echo "No 'public' directory found — skipping assets"
           fi
-          EOF
 
           # Set WORKER_URL
-          SUBDOMAIN=$(curl -sH "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
+          SUBDOMAIN=$(curl -s -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
             "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/workers/subdomain" \
             | jq -r '.result.subdomain')
           echo "WORKER_URL=$WORKER_NAME.$SUBDOMAIN.workers.dev" >> $GITHUB_ENV
@@ -105,7 +101,8 @@ EOF
           name = "$FINAL_NAME"
           main = "src/index.js"
           compatibility_date = "$(date +%Y-%m-%d)"
-EOF
+          EOF
+
           # CONDITIONAL ASSETS
           if [ -d "public" ]; then
             echo 'assets = { directory = "public" }' >> wrangler.toml
@@ -113,10 +110,9 @@ EOF
           else
             echo "No 'public' directory found — skipping assets"
           fi
-          EOF
 
           # Set WORKER_URL
-          SUBDOMAIN=$(curl -sH "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
+          SUBDOMAIN=$(curl -s -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
             "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/workers/subdomain" \
             | jq -r '.result.subdomain')
           echo "WORKER_URL=$FINAL_NAME.$SUBDOMAIN.workers.dev" >> $GITHUB_ENV
@@ -134,7 +130,8 @@ EOF
           name = "$FINAL_NAME"
           main = "src/index.js"
           compatibility_date = "$(date +%Y-%m-%d)"
-EOF
+          EOF
+
           # CONDITIONAL ASSETS
           if [ -d "public" ]; then
             echo 'assets = { directory = "public" }' >> wrangler.toml
@@ -142,10 +139,9 @@ EOF
           else
             echo "No 'public' directory found — skipping assets"
           fi
-          EOF
 
           # Set WORKER_URL
-          SUBDOMAIN=$(curl -sH "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
+          SUBDOMAIN=$(curl -s -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
             "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/workers/subdomain" \
             | jq -r '.result.subdomain')
           echo "WORKER_URL=$FINAL_NAME.$SUBDOMAIN.workers.dev" >> $GITHUB_ENV
@@ -168,11 +164,11 @@ EOF
         run: |
           WORKER_NAME=${{ vars.WORKER_NAME }}
           DEPLOY_NAME="${{ steps.deploy.outputs.name }}"
-          DB_NAME=$(if [ -z "$DEPLOY_NAME" ] || [ "$USE_PRODUCTION_DB_ON_PREVIEW" = "true" ]; then
-            echo "$WORKER_NAME"
+          if [ -z "$DEPLOY_NAME" ] || [ "$USE_PRODUCTION_DB_ON_PREVIEW" = "true" ]; then
+            DB_NAME="$WORKER_NAME"
           else
-            echo "${DEPLOY_NAME}-${WORKER_NAME}"
-          fi)
+            DB_NAME="${DEPLOY_NAME}-${WORKER_NAME}"
+          fi
           BINDING_NAME=${{ vars.BINDING_NAME }}
 
           npx wrangler whoami
@@ -182,7 +178,8 @@ EOF
           if [ -z "$DB_ID" ]; then
             echo "Creating D1: $DB_NAME"
             npx wrangler d1 create "$DB_NAME" || exit 1
-            DB_ID=$(npx wrangler d1 list --json | jq -r --arg name "$DB_NAME" '.[] | select(.name == $name) | .uuid')
+            DBS=$(npx wrangler d1 list --json)
+            DB_ID=$(echo "$DBS" | jq -r --arg name "$DB_NAME" '.[] | select(.name == $name) | .uuid')
           fi
 
           if ! grep -q "database_id = \"$DB_ID\"" wrangler.toml; then
@@ -215,7 +212,7 @@ EOF
         with:
           script: |
             await github.rest.issues.createComment({
-              issue_number: ${{ github.event.pull_request.number }},
+              issue_number: context.issue_number,
               owner: context.repo.owner,
               repo: context.repo.repo,
               body: `Preview: https://${{ env.WORKER_URL }}`
