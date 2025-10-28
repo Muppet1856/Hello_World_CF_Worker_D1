@@ -39,33 +39,38 @@ jobs:
             echo "$1" | tr '[:upper:]' '[:lower:]' | tr '/' '-' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//'
           }
 
-          echo "Event: ${{ github.event_name }}, Ref: ${{ github.ref_name || 'N/A' }}"
+          echo "Event: ${{ github.event_name }}"
+          echo "Ref: ${{ github.ref }} | Ref Name: ${{ github.ref_name }}"
 
           if [ "${{ github.event_name }}" == "pull_request" ]; then
+            BRANCH="${{ github.event.pull_request.head.ref }}"
             NAME=$(sanitize "pr-${{ github.event.pull_request.number }}")
             echo "type=pr" >> $GITHUB_OUTPUT
             echo "name=$NAME" >> $GITHUB_OUTPUT
-            echo "DEBUG: PR deploy"
+            echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+            echo "PR deploy: #$NAME"
 
           elif [ "${{ github.event_name }}" == "push" ] && [ "${{ github.ref_name }}" == "main" ]; then
             echo "type=prod" >> $GITHUB_OUTPUT
             echo "name=" >> $GITHUB_OUTPUT
-            echo "DEBUG: Production deploy"
+            echo "Production deploy"
 
           elif [ "${{ github.event_name }}" == "push" ] || [ "${{ github.event_name }}" == "create" ]; then
-            REF_NAME="${{ github.ref_name || github.event.ref_name }}"
+            BRANCH=$(echo "${{ github.ref }}" | sed 's|^refs/heads/||')
+            echo "Push/create on branch: $BRANCH"
+
             RESPONSE=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
-              "https://api.github.com/repos/${{ github.repository }}/pulls?head=${{ github.repository_owner }}:${REF_NAME}&state=open")
+              "https://api.github.com/repos/${{ github.repository }}/pulls?head=${{ github.repository_owner }}:${BRANCH}&state=open")
             COUNT=$(echo "$RESPONSE" | jq '. | length // 0')
 
             if [ "$COUNT" -gt 0 ]; then
               echo "type=skip" >> $GITHUB_OUTPUT
-              echo "DEBUG: Skip - PR exists"
+              echo "Skip: PR exists for $BRANCH"
             else
-              NAME=$(sanitize "$REF_NAME")
+              NAME=$(sanitize "$BRANCH")
               echo "type=branch" >> $GITHUB_OUTPUT
               echo "name=$NAME" >> $GITHUB_OUTPUT
-              echo "DEBUG: Branch deploy"
+              echo "Branch deploy: $NAME"
             fi
 
           else
@@ -81,7 +86,6 @@ jobs:
           WORKER_NAME: ${{ vars.WORKER_NAME }}
         run: |
           COMPAT_DATE=$(date +%Y-%m-%d)
-
           cat > wrangler.toml << EOF
           name = "${WORKER_NAME}"
           main = "src/index.js"
@@ -90,16 +94,11 @@ jobs:
 
           if [ -d "public" ]; then
             printf 'assets = { directory = "public" }\n' >> wrangler.toml
-            echo "Assets: public/ found"
-          else
-            echo "Assets: no public/ directory"
           fi
 
           SUBDOMAIN=$(curl -s -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
             "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/workers/subdomain" \
-            | jq -r '.result.subdomain // empty')
-
-          [ -n "$SUBDOMAIN" ] || { echo "Error: No subdomain" >&2; exit 1; }
+            | jq -r '.result.subdomain')
           echo "WORKER_URL=${WORKER_NAME}.${SUBDOMAIN}.workers.dev" >> $GITHUB_ENV
 
       # ————————————————————————
@@ -112,7 +111,6 @@ jobs:
         run: |
           FINAL_NAME="${{ steps.deploy.outputs.name }}-${WORKER_NAME}"
           COMPAT_DATE=$(date +%Y-%m-%d)
-
           cat > wrangler.toml << EOF
           name = "${FINAL_NAME}"
           main = "src/index.js"
@@ -121,16 +119,11 @@ jobs:
 
           if [ -d "public" ]; then
             printf 'assets = { directory = "public" }\n' >> wrangler.toml
-            echo "Assets: public/ found"
-          else
-            echo "Assets: no public/ directory"
           fi
 
           SUBDOMAIN=$(curl -s -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
             "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/workers/subdomain" \
-            | jq -r '.result.subdomain // empty')
-
-          [ -n "$SUBDOMAIN" ] || { echo "Error: No subdomain" >&2; exit 1; }
+            | jq -r '.result.subdomain')
           echo "WORKER_URL=${FINAL_NAME}.${SUBDOMAIN}.workers.dev" >> $GITHUB_ENV
 
       # ————————————————————————
@@ -143,7 +136,6 @@ jobs:
         run: |
           FINAL_NAME="${{ steps.deploy.outputs.name }}-${WORKER_NAME}"
           COMPAT_DATE=$(date +%Y-%m-%d)
-
           cat > wrangler.toml << EOF
           name = "${FINAL_NAME}"
           main = "src/index.js"
@@ -152,16 +144,11 @@ jobs:
 
           if [ -d "public" ]; then
             printf 'assets = { directory = "public" }\n' >> wrangler.toml
-            echo "Assets: public/ found"
-          else
-            echo "Assets: no public/ directory"
           fi
 
           SUBDOMAIN=$(curl -s -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
             "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/workers/subdomain" \
-            | jq -r '.result.subdomain // empty')
-
-          [ -n "$SUBDOMAIN" ] || { echo "Error: No subdomain" >&2; exit 1; }
+            | jq -r '.result.subdomain')
           echo "WORKER_URL=${FINAL_NAME}.${SUBDOMAIN}.workers.dev" >> $GITHUB_ENV
 
       # ————————————————————————
@@ -189,29 +176,20 @@ jobs:
           fi)
           BINDING_NAME="${{ vars.BINDING_NAME }}"
 
-          echo "Using DB: $DB_NAME"
-
           npx wrangler whoami
           DBS=$(npx wrangler d1 list --json)
           DB_ID=$(echo "$DBS" | jq -r --arg name "$DB_NAME" '.[] | select(.name == $name) | .uuid // empty')
 
           if [ -z "$DB_ID" ]; then
-            echo "Creating D1: $DB_NAME"
             npx wrangler d1 create "$DB_NAME" || exit 1
             DB_ID=$(npx wrangler d1 list --json | jq -r --arg name "$DB_NAME" '.[] | select(.name == $name) | .uuid')
-          else
-            echo "Using existing D1: $DB_NAME"
           fi
 
-          # === SAFE TOML APPEND: NO INDENT, NO SPACES ===
-          if ! grep -q "database_id = \"$DB_ID\"" wrangler.toml 2>/dev/null; then
+          if ! grep -q "database_id = \"$DB_ID\"" wrangler.toml; then
             printf '\n[[d1_databases]]\n' >> wrangler.toml
             printf 'binding = "%s"\n' "$BINDING_NAME" >> wrangler.toml
             printf 'database_name = "%s"\n' "$DB_NAME" >> wrangler.toml
             printf 'database_id = "%s"\n' "$DB_ID" >> wrangler.toml
-            echo "D1 binding added"
-          else
-            echo "D1 binding already exists"
           fi
 
           echo "DB_NAME=$DB_NAME" >> $GITHUB_ENV
@@ -224,10 +202,8 @@ jobs:
         run: |
           shopt -s nullglob
           for file in migrations/*.sql; do
-            echo "Applying: $file"
             npx wrangler d1 execute "${{ env.DB_NAME }}" --file="$file" --remote || exit 1
           done
-          echo "Migrations done"
 
       - name: Deploy Worker
         if: steps.deploy.outputs.type != 'skip'
@@ -245,5 +221,5 @@ jobs:
               issue_number: ${{ github.event.pull_request.number }},
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `Preview deployed: https://${{ env.WORKER_URL }}`
+              body: `Preview: https://${{ env.WORKER_URL }}`
             });
