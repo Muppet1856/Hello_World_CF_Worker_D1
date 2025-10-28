@@ -7,7 +7,6 @@ on:
   pull_request:
     types: [ opened, synchronize ]
     paths-ignore: [ '**/.github/**', '**/README.md' ]
-
   workflow_dispatch:
     inputs:
       badge_label:
@@ -22,7 +21,7 @@ jobs:
   deploy-and-badge:
     runs-on: ubuntu-latest
     permissions:
-      contents: write          # needed for README push
+      contents: write
       issues: write
       pull-requests: write
 
@@ -34,9 +33,6 @@ jobs:
       USE_PRODUCTION_DB_ON_PREVIEW: ${{ vars.USE_PRODUCTION_DB_ON_PREVIEW }}
 
     steps:
-      # ------------------------------------------------------------------
-      # 1. Checkout + basic tools
-      # ------------------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -52,9 +48,9 @@ jobs:
           npm install wrangler@4 --save-dev
           sudo apt update -qq && sudo apt install -y jq perl -qq
 
-      # ------------------------------------------------------------------
-      # 2. Determine deploy type, env name & badge label
-      # ------------------------------------------------------------------
+      # ————————————————————————
+      # Determine deploy type & badge label
+      # ————————————————————————
       - name: Determine Deploy Type & Badge Label
         id: cfg
         run: |
@@ -70,38 +66,36 @@ jobs:
           BRANCH_REF="${{ github.ref }}"
           BRANCH_NAME=$(echo "$BRANCH_REF" | sed 's|^refs/heads/||' | sed 's|^refs/pull/[0-9]*/merge$||')
           EVENT="${{ github.event_name }}"
-
           BADGE_OVERRIDE="${{ inputs.badge_label }}"
 
           if [ "$EVENT" = "push" ] && [ "$BRANCH_NAME" = "main" ]; then
-            echo "type=prod"        >> $GITHUB_OUTPUT
-            echo "env_name="        >> $GITHUB_OUTPUT
+            echo "type=prod" >> $GITHUB_OUTPUT
+            echo "env_name=" >> $GITHUB_OUTPUT
             echo "badge_label=production" >> $GITHUB_OUTPUT
 
           elif [ "$EVENT" = "pull_request" ]; then
             PR_NUM="${{ github.event.pull_request.number }}"
             ENV=$(sanitize "pr-${PR_NUM}")
-            echo "type=pr"          >> $GITHUB_OUTPUT
-            echo "env_name=$ENV"    >> $GITHUB_OUTPUT
+            echo "type=pr" >> $GITHUB_OUTPUT
+            echo "env_name=$ENV" >> $GITHUB_OUTPUT
             echo "badge_label=${BADGE_OVERRIDE:-$ENV}" >> $GITHUB_OUTPUT
 
           elif [ "$EVENT" = "workflow_dispatch" ] && [[ "$BRANCH_REF" == refs/heads/* ]]; then
             ENV=$(sanitize "$BRANCH_NAME")
-            echo "type=manual"      >> $GITHUB_OUTPUT
-            echo "env_name=$ENV"    >> $GITHUB_OUTPUT
+            echo "type=manual" >> $GITHUB_OUTPUT
+            echo "env_name=$ENV" >> $GITHUB_OUTPUT
             echo "badge_label=${BADGE_OVERRIDE:-$ENV}" >> $GITHUB_OUTPUT
 
           else
-            echo "type=skip"        >> $GITHUB_OUTPUT
+            echo "type=skip" >> $GITHUB_OUTPUT
           fi
 
-      # ------------------------------------------------------------------
-      # 3. Build wrangler.toml (prod / preview name)
-      # ------------------------------------------------------------------
+      # ————————————————————————
+      # Setup wrangler.toml
+      # ————————————————————————
       - name: Setup wrangler.toml
         if: steps.cfg.outputs.type != 'skip'
         run: |
-          # final worker name (prod = WORKER_NAME, preview = <env>-WORKER_NAME)
           FINAL_NAME="${{ steps.cfg.outputs.env_name && format('{0}-{1}', steps.cfg.outputs.env_name, env.WORKER_NAME) || env.WORKER_NAME }}"
           COMPAT_DATE=$(date +%Y-%m-%d)
 
@@ -112,18 +106,16 @@ jobs:
           EOF
 
           [ -d public ] && echo 'assets = { directory = "public" }' >> wrangler.toml
-
           echo "FINAL_WORKER_NAME=$FINAL_NAME" >> $GITHUB_ENV
 
-      # ------------------------------------------------------------------
-      # 4. Resolve host: custom domain → workers.dev fallback
-      # ------------------------------------------------------------------
-      - name: Resolve Worker host (custom domain → workers.dev)
+      # ————————————————————————
+      # Resolve host: custom domain → workers.dev
+      # ————————————————————————
+      - name: Resolve Worker Host
         if: steps.cfg.outputs.type != 'skip'
         run: |
           set -euo pipefail
 
-          # ---- helper to call Cloudflare API ----
           cf_get() {
             local path="$1"
             curl -sS -X GET "https://api.cloudflare.com/client/v4/${path}" \
@@ -131,7 +123,6 @@ jobs:
               -H "Content-Type: application/json"
           }
 
-          # 1. Try custom domain(s) via Workers Domains API
           DOMAIN_HOST=""
           DOMAINS_JSON=$(cf_get "accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/domains")
           DOMAIN_HOST=$(echo "$DOMAINS_JSON" | jq -r '.result[]? | select(.hostname != null and .hostname != "") | .hostname' | head -n1 || true)
@@ -143,7 +134,6 @@ jobs:
             echo "No custom domain – falling back to workers.dev"
           fi
 
-          # 2. Build final host
           if [ -n "$DOMAIN_HOST" ]; then
             if [ -n "${{ steps.cfg.outputs.env_name }}" ]; then
               HOST="${{ steps.cfg.outputs.env_name }}-${FINAL_WORKER_NAME}.preview.${DOMAIN_HOST}"
@@ -151,7 +141,6 @@ jobs:
               HOST="${DOMAIN_HOST}"
             fi
           else
-            # workers.dev fallback
             SUB_JSON=$(cf_get "accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/subdomain")
             SUBDOMAIN=$(echo "$SUB_JSON" | jq -r '.result.subdomain // empty')
             [ -n "$SUBDOMAIN" ] || { echo "Error: cannot get workers.dev subdomain" >&2; exit 1; }
@@ -164,14 +153,13 @@ jobs:
           fi
 
           PREVIEW_URL="https://$HOST"
-
           echo "WORKER_HOST=$HOST" >> $GITHUB_ENV
           echo "PREVIEW_URL=$PREVIEW_URL" >> $GITHUB_ENV
           echo "Resolved host: $HOST"
 
-      # ------------------------------------------------------------------
-      # 5. D1 database (create / bind)
-      # ------------------------------------------------------------------
+      # ————————————————————————
+      # D1: Create / Bind
+      # ————————————————————————
       - name: Create/Get D1 + Bind
         if: steps.cfg.outputs.type != 'skip'
         run: |
@@ -202,9 +190,9 @@ jobs:
 
           echo "DB_NAME=$DB_NAME" >> $GITHUB_ENV
 
-      # ------------------------------------------------------------------
-      # 6. Apply migrations
-      # ------------------------------------------------------------------
+      # ————————————————————————
+      # Apply Migrations
+      # ————————————————————————
       - name: Apply Migrations
         if: steps.cfg.outputs.type != 'skip'
         run: |
@@ -213,9 +201,9 @@ jobs:
             npx wrangler d1 execute "$DB_NAME" --file="$f" --remote || exit 1
           done
 
-      # ------------------------------------------------------------------
-      # 7. Deploy Worker
-      # ------------------------------------------------------------------
+      # ————————————————————————
+      # Deploy Worker
+      # ————————————————————————
       - name: Deploy Worker
         if: steps.cfg.outputs.type != 'skip'
         uses: cloudflare/wrangler-action@v3
@@ -223,9 +211,9 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      # ------------------------------------------------------------------
-      # 8. Comment preview URL on PR
-      # ------------------------------------------------------------------
+      # ————————————————————————
+      # Comment on PR
+      # ————————————————————————
       - name: Comment on PR
         if: steps.cfg.outputs.type == 'pr'
         uses: actions/github-script@v6
@@ -238,9 +226,9 @@ jobs:
               body: `Preview: ${{ env.PREVIEW_URL }}`
             });
 
-      # ------------------------------------------------------------------
-      # 9. Build & insert badge into README
-      # ------------------------------------------------------------------
+      # ————————————————————————
+      # Update README Badge (SAFE VERSION)
+      # ————————————————————————
       - name: Update README Preview Badge
         if: steps.cfg.outputs.type != 'skip'
         run: |
@@ -248,7 +236,6 @@ jobs:
 
           URL="${{ env.PREVIEW_URL }}"
           LABEL="${{ steps.cfg.outputs.badge_label }}"
-          ENCODED_LABEL=$(jq -rn --arg x "$LABEL" '$x | @uri')
 
           BADGE="[![](${URL})](${URL})"
 
@@ -257,7 +244,8 @@ jobs:
           FILE="README.md"
 
           grep -qF "$START" "$FILE" && grep -qF "$END" "$FILE" || {
-            echo "Error: Missing badge markers" >&2; exit 1
+            echo "Error: Missing badge markers in $FILE" >&2
+            exit 1
           }
 
           perl -i -0777 -pe '
@@ -270,7 +258,9 @@ jobs:
           ' "$FILE"
 
           if ! grep -qF "$BADGE" "$FILE"; then
-            echo "Badge update failed!" >&2; cat "$FILE"; exit 1
+            echo "Error: Badge update failed!" >&2
+            cat "$FILE"
+            exit 1
           fi
 
           echo "Badge updated: $LABEL → $URL"
@@ -279,14 +269,14 @@ jobs:
           END: <!-- PREVIEW_BADGE_END -->
           BADGE: ![](${URL})
 
-      # ------------------------------------------------------------------
-      # 10. Commit badge change
-      # ------------------------------------------------------------------
-      - name: Commit README update
+      # ————————————————————————
+      # Commit README Update
+      # ————————————————————————
+      - name: Commit README Update
         if: steps.cfg.outputs.type != 'skip'
         run: |
           if git diff --quiet README.md; then
-            echo "No README changes"
+            echo "No changes to commit."
             exit 0
           fi
 
