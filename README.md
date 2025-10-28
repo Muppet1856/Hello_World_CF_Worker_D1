@@ -35,6 +35,16 @@ Key repository configuration expected by the workflow:
 | `BINDING_NAME` | Variable | D1 binding name used by the Worker (`HELLO_WORLD_DB` by default). |
 | `USE_PRODUCTION_DB_ON_PREVIEW` | Variable (optional) | When `true`, previews reuse the production database; otherwise previews get isolated databases. |
 
+#### Manually deploying a branch
+
+Need to re-run the deploy workflow outside of a pull request? Use the **Run workflow** button in GitHub Actions:
+
+1. Navigate to **Actions → Deploy to Cloudflare Worker with D1**.
+2. Pick the branch you want to deploy from the dropdown (the current branch is selected by default).
+3. Click **Run workflow**—no extra inputs are required. The workflow provisions a preview Worker named `<sanitized-branch>-<WORKER_NAME>` and binds the matching D1 database before publishing.
+
+Manual runs follow the same steps as preview deployments, so branch cleanups will automatically delete the resources when the branch is removed or the workflow is re-run.
+
 ### Cleanup (`.github/workflows/cleanup.yml`)
 
 Closing a pull request or deleting a branch runs the cleanup workflow. It mirrors the branch sanitization logic from the deploy job, then:
