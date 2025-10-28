@@ -33,6 +33,9 @@ jobs:
       USE_PRODUCTION_DB_ON_PREVIEW: ${{ vars.USE_PRODUCTION_DB_ON_PREVIEW }}
 
     steps:
+      # ————————————————————————
+      # Checkout
+      # ————————————————————————
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -49,7 +52,7 @@ jobs:
           sudo apt update -qq && sudo apt install -y jq -qq
 
       # ————————————————————————
-      # Determine deploy type & badge label
+      # Determine Deploy Type & Badge Label
       # ————————————————————————
       - name: Determine Deploy Type & Badge Label
         id: cfg
@@ -80,11 +83,17 @@ jobs:
             echo "env_name=$ENV" >> $GITHUB_OUTPUT
             echo "badge_label=${BADGE_OVERRIDE:-$ENV}" >> $GITHUB_OUTPUT
 
-          elif [ "$EVENT" = "workflow_dispatch" ] && [[ "$BRANCH_REF" == refs/heads/* ]]; then
-            ENV=$(sanitize "$BRANCH_NAME")
-            echo "type=manual" >> $GITHUB_OUTPUT
-            echo "env_name=$ENV" >> $GITHUB_OUTPUT
-            echo "badge_label=${BADGE_OVERRIDE:-$ENV}" >> $GITHUB_OUTPUT
+          elif [ "$EVENT" = "workflow_dispatch" ]; then
+            if [ "$BRANCH_NAME" = "main" ]; then
+              echo "type=prod" >> $GITHUB_OUTPUT
+              echo "env_name=" >> $GITHUB_OUTPUT
+              echo "badge_label=production" >> $GITHUB_OUTPUT
+            else
+              ENV=$(sanitize "$BRANCH_NAME")
+              echo "type=manual" >> $GITHUB_OUTPUT
+              echo "env_name=$ENV" >> $GITHUB_OUTPUT
+              echo "badge_label=${BADGE_OVERRIDE:-$ENV}" >> $GITHUB_OUTPUT
+            fi
 
           else
             echo "type=skip" >> $GITHUB_OUTPUT
@@ -96,7 +105,11 @@ jobs:
       - name: Setup wrangler.toml
         if: steps.cfg.outputs.type != 'skip'
         run: |
-          FINAL_NAME="${{ steps.cfg.outputs.env_name && format('{0}-{1}', steps.cfg.outputs.env_name, env.WORKER_NAME) || env.WORKER_NAME }}"
+          if [ -n "${{ steps.cfg.outputs.env_name }}" ]; then
+            FINAL_NAME="${{ steps.cfg.outputs.env_name }}-${{ env.WORKER_NAME }}"
+          else
+            FINAL_NAME="${{ env.WORKER_NAME }}"
+          fi
           COMPAT_DATE=$(date +%Y-%m-%d)
 
           cat > wrangler.toml <<EOF
@@ -109,7 +122,7 @@ jobs:
           echo "FINAL_WORKER_NAME=$FINAL_NAME" >> $GITHUB_ENV
 
       # ————————————————————————
-      # Resolve host: custom domain → workers.dev
+      # Resolve Worker Host (custom domain → workers.dev)
       # ————————————————————————
       - name: Resolve Worker Host
         if: steps.cfg.outputs.type != 'skip'
@@ -134,9 +147,11 @@ jobs:
             echo "No custom domain – falling back to workers.dev"
           fi
 
+          BASE_NAME="${FINAL_WORKER_NAME}"
+
           if [ -n "$DOMAIN_HOST" ]; then
             if [ -n "${{ steps.cfg.outputs.env_name }}" ]; then
-              HOST="${{ steps.cfg.outputs.env_name }}-${FINAL_WORKER_NAME}.preview.${DOMAIN_HOST}"
+              HOST="${{ steps.cfg.outputs.env_name }}-${BASE_NAME}.preview.${DOMAIN_HOST}"
             else
               HOST="${DOMAIN_HOST}"
             fi
@@ -146,9 +161,9 @@ jobs:
             [ -n "$SUBDOMAIN" ] || { echo "Error: cannot get workers.dev subdomain" >&2; exit 1; }
 
             if [ -n "${{ steps.cfg.outputs.env_name }}" ]; then
-              HOST="${{ steps.cfg.outputs.env_name }}-${FINAL_WORKER_NAME}.${SUBDOMAIN}.workers.dev"
+              HOST="${{ steps.cfg.outputs.env_name }}-${BASE_NAME}.${SUBDOMAIN}.workers.dev"
             else
-              HOST="${FINAL_WORKER_NAME}.${SUBDOMAIN}.workers.dev"
+              HOST="${BASE_NAME}.${SUBDOMAIN}.workers.dev"
             fi
           fi
 
@@ -227,7 +242,7 @@ jobs:
             });
 
       # ————————————————————————
-      # Update README Badge
+      # Update README Badge — SHIELD.IO
       # ————————————————————————
       - name: Update README Preview Badge
         if: steps.cfg.outputs.type != 'skip'
@@ -259,7 +274,7 @@ jobs:
 
           if ! cmp -s "$FILE" "$FILE.tmp"; then
             mv "$FILE.tmp" "$FILE"
-            echo "Shield badge updated: preview-${LABEL} to $URL"
+            echo "Badge updated: preview-${LABEL} to $URL"
           else
             rm "$FILE.tmp"
             echo "Badge already up-to-date"
@@ -268,6 +283,7 @@ jobs:
           grep -qF "$BADGE" "$FILE" || {
             echo "Error: Badge not inserted!" >&2; cat "$FILE"; exit 1
           }
+
       # ————————————————————————
       # Commit README Update
       # ————————————————————————
