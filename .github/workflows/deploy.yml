@@ -1,7 +1,6 @@
-name: Deploy to Cloudflare Worker with D1
+name: Deploy & Update Preview Badge
 
 on:
-  # ── AUTOMATIC ──
   push:
     branches: [ main ]
     paths-ignore: [ '**/.github/**', '**/README.md' ]
@@ -9,214 +8,226 @@ on:
     types: [ opened, synchronize ]
     paths-ignore: [ '**/.github/**', '**/README.md' ]
 
-  # ── MANUAL: Run on current branch (no input needed) ──
   workflow_dispatch:
+    inputs:
+      badge_label:
+        description: 'Override badge label (defaults to branch/PR name or "production")'
+        required: false
 
 concurrency:
   group: deploy-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  deploy:
+  deploy-and-badge:
     runs-on: ubuntu-latest
     permissions:
+      contents: write          # needed for README push
       issues: write
       pull-requests: write
 
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      WORKER_NAME: ${{ vars.WORKER_NAME }}
+      BINDING_NAME: ${{ vars.BINDING_NAME }}
+      USE_PRODUCTION_DB_ON_PREVIEW: ${{ vars.USE_PRODUCTION_DB_ON_PREVIEW }}
+
     steps:
-      - name: Checkout
+      # ------------------------------------------------------------------
+      # 1. Checkout + basic tools
+      # ------------------------------------------------------------------
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          # Use the branch from the context (PR, main, or current branch in UI)
           ref: ${{ github.ref }}
+          persist-credentials: true
 
       - name: Verify src/index.js
         run: |
           [ -f "src/index.js" ] || (echo "Error: src/index.js missing" >&2; exit 1)
 
-      - name: Determine Deploy Type
-        id: deploy
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          sanitize() {
-            echo "$1" | tr '[:upper:]' '[:lower:]' | tr '/' '-' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//'
-          }
-
-          # Extract branch name from ref (refs/heads/feature-x)
-          BRANCH_REF="${{ github.ref }}"
-          BRANCH_NAME=$(echo "$BRANCH_REF" | sed 's|^refs/heads/||' | sed 's|^refs/pull/[0-9]*/merge$||')
-
-          echo "Event: ${{ github.event_name }}"
-          echo "Ref: $BRANCH_REF | Branch: $BRANCH_NAME"
-
-          if [ "${{ github.event_name }}" == "push" ] && [ "$BRANCH_NAME" == "main" ]; then
-            echo "type=prod" >> $GITHUB_OUTPUT
-            echo "name=" >> $GITHUB_OUTPUT
-            echo "Production deploy"
-
-          elif [ "${{ github.event_name }}" == "pull_request" ]; then
-            NAME=$(sanitize "pr-${{ github.event.pull_request.number }}")
-            echo "type=pr" >> $GITHUB_OUTPUT
-            echo "name=$NAME" >> $GITHUB_OUTPUT
-            echo "PR preview #${{ github.event.pull_request.number }}"
-
-          elif [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            # Manual run: use current branch
-            if [[ "$BRANCH_REF" == refs/heads/* ]]; then
-              NAME=$(sanitize "$BRANCH_NAME")
-              echo "type=manual" >> $GITHUB_OUTPUT
-              echo "name=$NAME" >> $GITHUB_OUTPUT
-              echo "Manual deploy of branch: $BRANCH_NAME"
-            else
-              echo "Error: Cannot determine branch for manual run" >&2
-              exit 1
-            fi
-
-          else
-            echo "type=skip" >> $GITHUB_OUTPUT
-          fi
-
-      # ————————————————————————
-      # PRODUCTION
-      # ————————————————————————
-      - name: Setup wrangler.toml (Production)
-        if: steps.deploy.outputs.type == 'prod'
-        env:
-          WORKER_NAME: ${{ vars.WORKER_NAME }}
-        run: |
-          COMPAT_DATE=$(date +%Y-%m-%d)
-          cat > wrangler.toml << EOF
-          name = "${WORKER_NAME}"
-          main = "src/index.js"
-          compatibility_date = "${COMPAT_DATE}"
-          EOF
-
-          if [ -d "public" ]; then
-            printf 'assets = { directory = "public" }\n' >> wrangler.toml
-          fi
-
-          SUBDOMAIN=$(curl -s -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
-            "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/workers/subdomain" \
-            | jq -r '.result.subdomain // empty')
-          [ -n "$SUBDOMAIN" ] || { echo "Error: No subdomain" >&2; exit 1; }
-          echo "WORKER_URL=${WORKER_NAME}.${SUBDOMAIN}.workers.dev" >> $GITHUB_ENV
-
-      # ————————————————————————
-      # PR PREVIEW
-      # ————————————————————————
-      - name: Setup wrangler.toml (PR)
-        if: steps.deploy.outputs.type == 'pr'
-        env:
-          WORKER_NAME: ${{ vars.WORKER_NAME }}
-        run: |
-          FINAL_NAME="${{ steps.deploy.outputs.name }}-${WORKER_NAME}"
-          COMPAT_DATE=$(date +%Y-%m-%d)
-          cat > wrangler.toml << EOF
-          name = "${FINAL_NAME}"
-          main = "src/index.js"
-          compatibility_date = "${COMPAT_DATE}"
-          EOF
-
-          if [ -d "public" ]; then
-            printf 'assets = { directory = "public" }\n' >> wrangler.toml
-          fi
-
-          SUBDOMAIN=$(curl -s -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
-            "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/workers/subdomain" \
-            | jq -r '.result.subdomain // empty')
-          [ -n "$SUBDOMAIN" ] || { echo "Error: No subdomain" >&2; exit 1; }
-          echo "WORKER_URL=${FINAL_NAME}.${SUBDOMAIN}.workers.dev" >> $GITHUB_ENV
-
-      # ————————————————————————
-      # MANUAL (CURRENT BRANCH)
-      # ————————————————————————
-      - name: Setup wrangler.toml (Manual)
-        if: steps.deploy.outputs.type == 'manual'
-        env:
-          WORKER_NAME: ${{ vars.WORKER_NAME }}
-        run: |
-          FINAL_NAME="${{ steps.deploy.outputs.name }}-${WORKER_NAME}"
-          COMPAT_DATE=$(date +%Y-%m-%d)
-          cat > wrangler.toml << EOF
-          name = "${FINAL_NAME}"
-          main = "src/index.js"
-          compatibility_date = "${COMPAT_DATE}"
-          EOF
-
-          if [ -d "public" ]; then
-            printf 'assets = { directory = "public" }\n' >> wrangler.toml
-          fi
-
-          SUBDOMAIN=$(curl -s -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
-            "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/workers/subdomain" \
-            | jq -r '.result.subdomain // empty')
-          [ -n "$SUBDOMAIN" ] || { echo "Error: No subdomain" >&2; exit 1; }
-          echo "WORKER_URL=${FINAL_NAME}.${SUBDOMAIN}.workers.dev" >> $GITHUB_ENV
-
-      # ————————————————————————
-      # COMMON STEPS
-      # ————————————————————————
-      - name: Install dependencies
-        if: steps.deploy.outputs.type != 'skip'
+      - name: Install tools
         run: |
           npm install wrangler@4 --save-dev
-          sudo apt update -qq && sudo apt install -y jq -qq
+          sudo apt update -qq && sudo apt install -y jq perl -qq
 
-      - name: Create/Get D1 + Bind
-        if: steps.deploy.outputs.type != 'skip'
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          USE_PRODUCTION_DB_ON_PREVIEW: ${{ vars.USE_PRODUCTION_DB_ON_PREVIEW }}
+      # ------------------------------------------------------------------
+      # 2. Determine deploy type, env name & badge label
+      # ------------------------------------------------------------------
+      - name: Determine Deploy Type & Badge Label
+        id: cfg
         run: |
-          WORKER_NAME="${{ vars.WORKER_NAME }}"
-          DEPLOY_NAME="${{ steps.deploy.outputs.name }}"
-          DB_NAME=$(if [ -z "$DEPLOY_NAME" ] || [ "$USE_PRODUCTION_DB_ON_PREVIEW" = "true" ]; then
+          sanitize() {
+            echo "$1" \
+              | tr '[:upper:]' '[:lower:]' \
+              | tr '/' '-' \
+              | sed 's/[^a-z0-9-]/-/g' \
+              | sed 's/--*/-/g' \
+              | sed 's/^-//;s/-$//'
+          }
+
+          BRANCH_REF="${{ github.ref }}"
+          BRANCH_NAME=$(echo "$BRANCH_REF" | sed 's|^refs/heads/||' | sed 's|^refs/pull/[0-9]*/merge$||')
+          EVENT="${{ github.event_name }}"
+
+          BADGE_OVERRIDE="${{ inputs.badge_label }}"
+
+          if [ "$EVENT" = "push" ] && [ "$BRANCH_NAME" = "main" ]; then
+            echo "type=prod"        >> $GITHUB_OUTPUT
+            echo "env_name="        >> $GITHUB_OUTPUT
+            echo "badge_label=production" >> $GITHUB_OUTPUT
+
+          elif [ "$EVENT" = "pull_request" ]; then
+            PR_NUM="${{ github.event.pull_request.number }}"
+            ENV=$(sanitize "pr-${PR_NUM}")
+            echo "type=pr"          >> $GITHUB_OUTPUT
+            echo "env_name=$ENV"    >> $GITHUB_OUTPUT
+            echo "badge_label=${BADGE_OVERRIDE:-$ENV}" >> $GITHUB_OUTPUT
+
+          elif [ "$EVENT" = "workflow_dispatch" ] && [[ "$BRANCH_REF" == refs/heads/* ]]; then
+            ENV=$(sanitize "$BRANCH_NAME")
+            echo "type=manual"      >> $GITHUB_OUTPUT
+            echo "env_name=$ENV"    >> $GITHUB_OUTPUT
+            echo "badge_label=${BADGE_OVERRIDE:-$ENV}" >> $GITHUB_OUTPUT
+
+          else
+            echo "type=skip"        >> $GITHUB_OUTPUT
+          fi
+
+      # ------------------------------------------------------------------
+      # 3. Build wrangler.toml (prod / preview name)
+      # ------------------------------------------------------------------
+      - name: Setup wrangler.toml
+        if: steps.cfg.outputs.type != 'skip'
+        run: |
+          # final worker name (prod = WORKER_NAME, preview = <env>-WORKER_NAME)
+          FINAL_NAME="${{ steps.cfg.outputs.env_name && format('{0}-{1}', steps.cfg.outputs.env_name, env.WORKER_NAME) || env.WORKER_NAME }}"
+          COMPAT_DATE=$(date +%Y-%m-%d)
+
+          cat > wrangler.toml <<EOF
+          name = "${FINAL_NAME}"
+          main = "src/index.js"
+          compatibility_date = "${COMPAT_DATE}"
+          EOF
+
+          [ -d public ] && echo 'assets = { directory = "public" }' >> wrangler.toml
+
+          echo "FINAL_WORKER_NAME=$FINAL_NAME" >> $GITHUB_ENV
+
+      # ------------------------------------------------------------------
+      # 4. Resolve host: custom domain → workers.dev fallback
+      # ------------------------------------------------------------------
+      - name: Resolve Worker host (custom domain → workers.dev)
+        if: steps.cfg.outputs.type != 'skip'
+        run: |
+          set -euo pipefail
+
+          # ---- helper to call Cloudflare API ----
+          cf_get() {
+            local path="$1"
+            curl -sS -X GET "https://api.cloudflare.com/client/v4/${path}" \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              -H "Content-Type: application/json"
+          }
+
+          # 1. Try custom domain(s) via Workers Domains API
+          DOMAIN_HOST=""
+          DOMAINS_JSON=$(cf_get "accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/domains")
+          DOMAIN_HOST=$(echo "$DOMAINS_JSON" | jq -r '.result[]? | select(.hostname != null and .hostname != "") | .hostname' | head -n1 || true)
+
+          if [ -n "$DOMAIN_HOST" ]; then
+            DOMAIN_HOST=$(echo "$DOMAIN_HOST" | tr -d '[:space:]')
+            echo "Custom domain found: $DOMAIN_HOST"
+          else
+            echo "No custom domain – falling back to workers.dev"
+          fi
+
+          # 2. Build final host
+          if [ -n "$DOMAIN_HOST" ]; then
+            if [ -n "${{ steps.cfg.outputs.env_name }}" ]; then
+              HOST="${{ steps.cfg.outputs.env_name }}-${FINAL_WORKER_NAME}.preview.${DOMAIN_HOST}"
+            else
+              HOST="${DOMAIN_HOST}"
+            fi
+          else
+            # workers.dev fallback
+            SUB_JSON=$(cf_get "accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/subdomain")
+            SUBDOMAIN=$(echo "$SUB_JSON" | jq -r '.result.subdomain // empty')
+            [ -n "$SUBDOMAIN" ] || { echo "Error: cannot get workers.dev subdomain" >&2; exit 1; }
+
+            if [ -n "${{ steps.cfg.outputs.env_name }}" ]; then
+              HOST="${{ steps.cfg.outputs.env_name }}-${FINAL_WORKER_NAME}.${SUBDOMAIN}.workers.dev"
+            else
+              HOST="${FINAL_WORKER_NAME}.${SUBDOMAIN}.workers.dev"
+            fi
+          fi
+
+          PREVIEW_URL="https://$HOST"
+
+          echo "WORKER_HOST=$HOST" >> $GITHUB_ENV
+          echo "PREVIEW_URL=$PREVIEW_URL" >> $GITHUB_ENV
+          echo "Resolved host: $HOST"
+
+      # ------------------------------------------------------------------
+      # 5. D1 database (create / bind)
+      # ------------------------------------------------------------------
+      - name: Create/Get D1 + Bind
+        if: steps.cfg.outputs.type != 'skip'
+        run: |
+          DEPLOY_ENV="${{ steps.cfg.outputs.env_name }}"
+          DB_NAME=$(if [ -z "$DEPLOY_ENV" ] || [ "$USE_PRODUCTION_DB_ON_PREVIEW" = "true" ]; then
             echo "$WORKER_NAME"
           else
-            echo "${DEPLOY_NAME}-${WORKER_NAME}"
+            echo "${DEPLOY_ENV}-${WORKER_NAME}"
           fi)
-          BINDING_NAME="${{ vars.BINDING_NAME }}"
 
           npx wrangler whoami
-          DBS=$(npx wrangler d1 list --json)
-          DB_ID=$(echo "$DBS" | jq -r --arg name "$DB_NAME" '.[] | select(.name == $name) | .uuid // empty')
+          DB_ID=$(npx wrangler d1 list --json | jq -r --arg n "$DB_NAME" '.[] | select(.name == $n) | .uuid // empty')
 
           if [ -z "$DB_ID" ]; then
-            npx wrangler d1 create "$DB_NAME" || exit 1
-            DB_ID=$(npx wrangler d1 list --json | jq -r --arg name "$DB_NAME" '.[] | select(.name == $name) | .uuid')
+            npx wrangler d1 create "$DB_NAME"
+            DB_ID=$(npx wrangler d1 list --json | jq -r --arg n "$DB_NAME" '.[] | select(.name == $n) | .uuid')
           fi
 
           if ! grep -q "database_id = \"$DB_ID\"" wrangler.toml; then
-            printf '\n[[d1_databases]]\n' >> wrangler.toml
-            printf 'binding = "%s"\n' "$BINDING_NAME" >> wrangler.toml
-            printf 'database_name = "%s"\n' "$DB_NAME" >> wrangler.toml
-            printf 'database_id = "%s"\n' "$DB_ID" >> wrangler.toml
+            cat >> wrangler.toml <<EOF
+
+          [[d1_databases]]
+          binding = "$BINDING_NAME"
+          database_name = "$DB_NAME"
+          database_id = "$DB_ID"
+          EOF
           fi
 
           echo "DB_NAME=$DB_NAME" >> $GITHUB_ENV
-          echo "DB_ID=$DB_ID" >> $GITHUB_ENV
 
+      # ------------------------------------------------------------------
+      # 6. Apply migrations
+      # ------------------------------------------------------------------
       - name: Apply Migrations
-        if: steps.deploy.outputs.type != 'skip'
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        if: steps.cfg.outputs.type != 'skip'
         run: |
           shopt -s nullglob
-          for file in migrations/*.sql; do
-            npx wrangler d1 execute "${{ env.DB_NAME }}" --file="$file" --remote || exit 1
+          for f in migrations/*.sql; do
+            npx wrangler d1 execute "$DB_NAME" --file="$f" --remote || exit 1
           done
 
+      # ------------------------------------------------------------------
+      # 7. Deploy Worker
+      # ------------------------------------------------------------------
       - name: Deploy Worker
-        if: steps.deploy.outputs.type != 'skip'
+        if: steps.cfg.outputs.type != 'skip'
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      - name: Comment PR
-        if: steps.deploy.outputs.type == 'pr'
+      # ------------------------------------------------------------------
+      # 8. Comment preview URL on PR
+      # ------------------------------------------------------------------
+      - name: Comment on PR
+        if: steps.cfg.outputs.type == 'pr'
         uses: actions/github-script@v6
         with:
           script: |
@@ -224,5 +235,66 @@ jobs:
               issue_number: ${{ github.event.pull_request.number }},
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `Preview: https://${{ env.WORKER_URL }}`
+              body: `Preview: ${{ env.PREVIEW_URL }}`
             });
+
+      # ------------------------------------------------------------------
+      # 9. Build & insert badge into README
+      # ------------------------------------------------------------------
+      - name: Update README Preview Badge
+        if: steps.cfg.outputs.type != 'skip'
+        run: |
+          set -euo pipefail
+
+          URL="${{ env.PREVIEW_URL }}"
+          LABEL="${{ steps.cfg.outputs.badge_label }}"
+
+          ENCODED=$(jq -rn --arg x "$LABEL" '$x|@uri')
+          BADGE="[![](${URL})](${URL})"
+
+          START="<!-- PREVIEW_BADGE_START -->"
+          END="<!-- PREVIEW_BADGE_END -->"
+          FILE="README.md"
+
+          # sanity checks
+          if ! grep -qF "$START" "$FILE" || ! grep -qF "$END" "$FILE"; then
+            echo "Error: $FILE missing badge markers" >&2
+            exit 1
+          fi
+
+          # extract current badge (if any)
+          CURRENT=$(awk "/${START}/{f=1;next} /${END}/{f=0} f" "$FILE" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+          if [ "$CURRENT" = "$BADGE" ]; then
+            echo "Badge already up-to-date"
+            exit 0
+          fi
+
+          # replace
+          perl -i -0777 -pe "s|(\Q$START\E).*?(\Q$END\E)|\\1$BADGE\\2|s" "$FILE"
+
+          # verify
+          if ! grep -qF "$BADGE" "$FILE"; then
+            echo "Error: badge not inserted" >&2
+            cat "$FILE"
+            exit 1
+          fi
+
+          echo "Badge updated in $FILE"
+
+      # ------------------------------------------------------------------
+      # 10. Commit badge change
+      # ------------------------------------------------------------------
+      - name: Commit README update
+        if: steps.cfg.outputs.type != 'skip'
+        run: |
+          if git diff --quiet README.md; then
+            echo "No README changes"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git commit -m "docs: update preview badge for ${{ steps.cfg.outputs.badge_label }}"
+          git push
