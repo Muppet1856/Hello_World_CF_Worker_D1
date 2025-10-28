@@ -25,7 +25,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Required for git rev-list to detect first commit
+          fetch-depth: 0  # For git rev-list to detect first commit
 
       - name: Verify src/index.js
         run: |
@@ -50,37 +50,45 @@ jobs:
             NAME=$(sanitize "pr-${{ github.event.pull_request.number }}")
             echo "type=pr" >> $GITHUB_OUTPUT
             echo "name=$NAME" >> $GITHUB_OUTPUT
-            echo "PR preview deploy"
+            echo "DEBUG: PR preview deploy"
 
           elif [ "${{ github.event_name }}" == "push" ] && [ "$BRANCH_NAME" == "main" ]; then
             echo "type=prod" >> $GITHUB_OUTPUT
             echo "name=" >> $GITHUB_OUTPUT
-            echo "Production deploy"
+            echo "DEBUG: Production deploy"
 
           elif [ "${{ github.event_name }}" == "create" ]; then
-            NAME=$(sanitize "$BRANCH_NAME")
-            echo "type=branch" >> $GITHUB_OUTPUT
-            echo "name=$NAME" >> $GITHUB_OUTPUT
-            echo "Branch created → deploying preview"
+            # Deploy on branch creation (if no PR)
+            RESPONSE=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+              "https://api.github.com/repos/${{ github.repository }}/pulls?head=${{ github.repository_owner }}:${BRANCH_NAME}&state=open")
+            COUNT=$(echo "$RESPONSE" | jq '. | length // 0')
+            if [ "$COUNT" -gt 0 ]; then
+              echo "type=skip" >> $GITHUB_OUTPUT
+              echo "DEBUG: Skip create - PR exists"
+            else
+              NAME=$(sanitize "$BRANCH_NAME")
+              echo "type=branch" >> $GITHUB_OUTPUT
+              echo "name=$NAME" >> $GITHUB_OUTPUT
+              echo "DEBUG: Branch preview deploy"
+            fi
 
           elif [ "${{ github.event_name }}" == "push" ]; then
-            # Skip if this is the first commit on a new branch (create already ran)
+            # Skip push if PR exists or first commit (create handled it)
             if [ "${{ github.event.before }}" = "0000000000000000000000000000000000000000" ]; then
               echo "type=skip" >> $GITHUB_OUTPUT
-              echo "Skip: First push after branch creation"
+              echo "DEBUG: Skip first push (create handled)"
             else
-              # Check for open PR
               RESPONSE=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
                 "https://api.github.com/repos/${{ github.repository }}/pulls?head=${{ github.repository_owner }}:${BRANCH_NAME}&state=open")
               COUNT=$(echo "$RESPONSE" | jq '. | length // 0')
               if [ "$COUNT" -gt 0 ]; then
                 echo "type=skip" >> $GITHUB_OUTPUT
-                echo "Skip: Open PR exists for $BRANCH_NAME"
+                echo "DEBUG: Skip push - PR exists"
               else
                 NAME=$(sanitize "$BRANCH_NAME")
                 echo "type=branch" >> $GITHUB_OUTPUT
                 echo "name=$NAME" >> $GITHUB_OUTPUT
-                echo "Branch push → deploying preview"
+                echo "DEBUG: Branch push deploy"
               fi
             fi
 
