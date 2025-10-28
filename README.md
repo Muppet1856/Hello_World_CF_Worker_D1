@@ -1,6 +1,6 @@
 # Cloudflare Worker + D1 starter with end-to-end automation
 
-[![GitHub Release](https://img.shields.io/github/v/release/Muppet1856/Hello_World_CF_Worker_D1)](https://github.com/Muppet1856/Hello_World_CF_Worker_D1/releases) [![GitHub License](https://img.shields.io/github/license/Muppet1856/Hello_World_CF_Worker_D1)](https://github.com/Muppet1856/Hello_World_CF_Worker_D1/blob/main/LICENSE) [![GitHub Issues or Pull Requests](https://img.shields.io/github/issues/Muppet1856/Hello_World_CF_Worker_D1)](https://github.com/Muppet1856/Hello_World_CF_Worker_D1/issues) <!-- PREVIEW_BADGE_START -->[![Preview](https://img.shields.io/badge/preview-production-purple?link=https://hello-world.zellen.workers.dev)](https://hello-world.zellen.workers.dev)<!-- PREVIEW_BADGE_END -->
+[![GitHub Release](https://img.shields.io/github/v/release/Muppet1856/Hello_World_CF_Worker_D1)](https://github.com/Muppet1856/Hello_World_CF_Worker_D1/releases) [![GitHub License](https://img.shields.io/github/license/Muppet1856/Hello_World_CF_Worker_D1)](https://github.com/Muppet1856/Hello_World_CF_Worker_D1/blob/main/LICENSE) [![GitHub Issues or Pull Requests](https://img.shields.io/github/issues/Muppet1856/Hello_World_CF_Worker_D1)](https://github.com/Muppet1856/Hello_World_CF_Worker_D1/issues) <!-- PREVIEW_BADGE_START -->[![Preview](https://img.shields.io/badge/preview-codex-update-readme-md-for-deploy-instructions-purple?link=https://codex-update-readme-md-for-deploy-instructions-hello-world.zellen.workers.dev)](https://codex-update-readme-md-for-deploy-instructions-hello-world.zellen.workers.dev)<!-- PREVIEW_BADGE_END -->
 
 This template bundles a minimal Worker that reads from a Cloudflare D1 database **and** the automation needed to provision, migrate, deploy, and clean up that infrastructure. Use it to study or adopt the workflows that keep preview and production environments in sync with your GitHub branches.
 
@@ -34,6 +34,16 @@ Key repository configuration expected by the workflow:
 | `WORKER_NAME` | Variable | Base Worker name (e.g. `hello-world-cf-worker-d1`). |
 | `BINDING_NAME` | Variable | D1 binding name used by the Worker (`HELLO_WORLD_DB` by default). |
 | `USE_PRODUCTION_DB_ON_PREVIEW` | Variable (optional) | When `true`, previews reuse the production database; otherwise previews get isolated databases. |
+
+#### Manually deploying a branch
+
+Need to re-run the deploy workflow outside of a pull request? Use the **Run workflow** button in GitHub Actions:
+
+1. Navigate to **Actions → Deploy to Cloudflare Worker with D1**.
+2. Pick the branch you want to deploy from the dropdown (the current branch is selected by default).
+3. Click **Run workflow**—no extra inputs are required. The workflow provisions a preview Worker named `<sanitized-branch>-<WORKER_NAME>` and binds the matching D1 database before publishing.
+
+Manual runs follow the same steps as preview deployments, so branch cleanups will automatically delete the resources when the branch is removed or the workflow is re-run.
 
 ### Cleanup (`.github/workflows/cleanup.yml`)
 
