@@ -43,7 +43,6 @@ jobs:
     # Job Configuration:
     # This job handles the deployment process for both production and preview environments.
     runs-on: ubuntu-latest  # Uses the latest Ubuntu runner for consistency and compatibility with required tools.
-    runs-on: ubuntu-latest
     permissions:
       issues: write
       pull-requests: write
