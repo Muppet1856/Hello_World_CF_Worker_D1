@@ -46,7 +46,7 @@ jobs:
       - name: Install tools
         run: |
           npm install wrangler@4 --save-dev
-          sudo apt update -qq && sudo apt install -y jq perl -qq
+          sudo apt update -qq && sudo apt install -y jq -qq
 
       # ————————————————————————
       # Determine deploy type & badge label
@@ -227,7 +227,7 @@ jobs:
             });
 
       # ————————————————————————
-      # Update README Badge (SAFE VERSION)
+      # Update README Badge — PURE BASH (no Perl)
       # ————————————————————————
       - name: Update README Preview Badge
         if: steps.cfg.outputs.type != 'skip'
@@ -237,37 +237,44 @@ jobs:
           URL="${{ env.PREVIEW_URL }}"
           LABEL="${{ steps.cfg.outputs.badge_label }}"
 
+          # Build badge markdown
           BADGE="[![](${URL})](${URL})"
 
           START="<!-- PREVIEW_BADGE_START -->"
           END="<!-- PREVIEW_BADGE_END -->"
           FILE="README.md"
 
+          # Validate markers
           grep -qF "$START" "$FILE" && grep -qF "$END" "$FILE" || {
             echo "Error: Missing badge markers in $FILE" >&2
             exit 1
           }
 
-          perl -i -0777 -pe '
-            BEGIN {
-              $start = quotemeta($ENV{START});
-              $end = quotemeta($ENV{END});
-              $badge = $ENV{BADGE};
-            }
-            s/($start).*?($end)/$1 . $badge . $2/se;
-          ' "$FILE"
+          # Escape special chars for sed: /, &, \
+          ESCAPED_START=$(printf '%s\n' "$START" | sed 's/[&/\]/\\&/g')
+          ESCAPED_END=$(printf '%s\n' "$END" | sed 's/[&/\]/\\&/g')
+          ESCAPED_BADGE=$(printf '%s\n' "$BADGE" | sed 's/[&/\]/\\&/g')
 
-          if ! grep -qF "$BADGE" "$FILE"; then
-            echo "Error: Badge update failed!" >&2
-            cat "$FILE"
-            exit 1
+          # Use sed with temporary file to avoid shell parsing
+          cp "$FILE" "$FILE.tmp"
+
+          sed -i "s|${ESCAPED_START}.*${ESCAPED_END}|${ESCAPED_START}${ESCAPED_BADGE}${ESCAPED_END}|" "$FILE.tmp"
+
+          # Only overwrite if changed
+          if ! cmp -s "$FILE" "$FILE.tmp"; then
+            mv "$FILE.tmp" "$FILE"
+            echo "Badge updated: $LABEL → $URL"
+          else
+            rm "$FILE.tmp"
+            echo "Badge already up-to-date"
           fi
 
-          echo "Badge updated: $LABEL → $URL"
-        env:
-          START: <!-- PREVIEW_BADGE_START -->
-          END: <!-- PREVIEW_BADGE_END -->
-          BADGE: ![](${URL})
+          # Final verification
+          grep -qF "$BADGE" "$FILE" || {
+            echo "Error: Badge not inserted!" >&2
+            cat "$FILE"
+            exit 1
+          }
 
       # ————————————————————————
       # Commit README Update
