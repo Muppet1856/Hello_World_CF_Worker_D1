@@ -1,36 +1,21 @@
 name: Deploy to Cloudflare Worker with D1
 
-# ──────────────────────────────────────────────────────────────
-# 1. AUTOMATIC TRIGGERS
-# ──────────────────────────────────────────────────────────────
 on:
-  # Production – push to main
+  # ── AUTOMATIC ──
   push:
     branches: [ main ]
     paths-ignore: [ '**/.github/**', '**/README.md' ]
-
-  # PR preview – opened or synchronized
   pull_request:
     types: [ opened, synchronize ]
     paths-ignore: [ '**/.github/**', '**/README.md' ]
 
-  # ──────────────────────────────────────────────────────────────
-  # 2. MANUAL RUN – pick any branch you want
-  # ──────────────────────────────────────────────────────────────
+  # ── MANUAL: Run on current branch (no input needed) ──
   workflow_dispatch:
-    inputs:
-      branch:
-        description: 'Branch to deploy (e.g. feature/login)'
-        required: true
-        default: ''
 
 concurrency:
   group: deploy-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
-# ──────────────────────────────────────────────────────────────
-# 3. JOB
-# ──────────────────────────────────────────────────────────────
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -39,19 +24,16 @@ jobs:
       pull-requests: write
 
     steps:
-      # ------------------------------------------------------------
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # For manual runs we need the exact branch the user selected
-          ref: ${{ github.event.inputs.branch || github.ref }}
+          # Use the branch from the context (PR, main, or current branch in UI)
+          ref: ${{ github.ref }}
 
-      # ------------------------------------------------------------
       - name: Verify src/index.js
         run: |
           [ -f "src/index.js" ] || (echo "Error: src/index.js missing" >&2; exit 1)
 
-      # ------------------------------------------------------------
       - name: Determine Deploy Type
         id: deploy
         env:
@@ -61,38 +43,43 @@ jobs:
             echo "$1" | tr '[:upper:]' '[:lower:]' | tr '/' '-' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//'
           }
 
-          # 1. Production (push to main)
-          if [ "${{ github.event_name }}" == "push" ] && [ "${{ github.ref_name }}" == "main" ]; then
+          # Extract branch name from ref (refs/heads/feature-x)
+          BRANCH_REF="${{ github.ref }}"
+          BRANCH_NAME=$(echo "$BRANCH_REF" | sed 's|^refs/heads/||' | sed 's|^refs/pull/[0-9]*/merge$||')
+
+          echo "Event: ${{ github.event_name }}"
+          echo "Ref: $BRANCH_REF | Branch: $BRANCH_NAME"
+
+          if [ "${{ github.event_name }}" == "push" ] && [ "$BRANCH_NAME" == "main" ]; then
             echo "type=prod" >> $GITHUB_OUTPUT
             echo "name=" >> $GITHUB_OUTPUT
-            echo "DEBUG: Production deploy"
+            echo "Production deploy"
 
-          # 2. PR preview
           elif [ "${{ github.event_name }}" == "pull_request" ]; then
             NAME=$(sanitize "pr-${{ github.event.pull_request.number }}")
             echo "type=pr" >> $GITHUB_OUTPUT
             echo "name=$NAME" >> $GITHUB_OUTPUT
-            echo "DEBUG: PR preview #${{ github.event.pull_request.number }}"
+            echo "PR preview #${{ github.event.pull_request.number }}"
 
-          # 3. Manual run (any branch)
           elif [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            BRANCH="${{ github.event.inputs.branch }}"
-            if [ -z "$BRANCH" ]; then
-              echo "Error: No branch supplied to workflow_dispatch" >&2
+            # Manual run: use current branch
+            if [[ "$BRANCH_REF" == refs/heads/* ]]; then
+              NAME=$(sanitize "$BRANCH_NAME")
+              echo "type=manual" >> $GITHUB_OUTPUT
+              echo "name=$NAME" >> $GITHUB_OUTPUT
+              echo "Manual deploy of branch: $BRANCH_NAME"
+            else
+              echo "Error: Cannot determine branch for manual run" >&2
               exit 1
             fi
-            NAME=$(sanitize "$BRANCH")
-            echo "type=manual" >> $GITHUB_OUTPUT
-            echo "name=$NAME" >> $GITHUB_OUTPUT
-            echo "DEBUG: Manual deploy of branch $BRANCH"
 
           else
             echo "type=skip" >> $GITHUB_OUTPUT
           fi
 
-      # ------------------------------------------------------------
-      # 4. WRANGLER.TOML – Production
-      # ------------------------------------------------------------
+      # ————————————————————————
+      # PRODUCTION
+      # ————————————————————————
       - name: Setup wrangler.toml (Production)
         if: steps.deploy.outputs.type == 'prod'
         env:
@@ -107,9 +94,6 @@ jobs:
 
           if [ -d "public" ]; then
             printf 'assets = { directory = "public" }\n' >> wrangler.toml
-            echo "Assets: public/ found"
-          else
-            echo "Assets: no public/ directory"
           fi
 
           SUBDOMAIN=$(curl -s -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
@@ -118,9 +102,9 @@ jobs:
           [ -n "$SUBDOMAIN" ] || { echo "Error: No subdomain" >&2; exit 1; }
           echo "WORKER_URL=${WORKER_NAME}.${SUBDOMAIN}.workers.dev" >> $GITHUB_ENV
 
-      # ------------------------------------------------------------
-      # 5. WRANGLER.TOML – PR Preview
-      # ------------------------------------------------------------
+      # ————————————————————————
+      # PR PREVIEW
+      # ————————————————————————
       - name: Setup wrangler.toml (PR)
         if: steps.deploy.outputs.type == 'pr'
         env:
@@ -136,9 +120,6 @@ jobs:
 
           if [ -d "public" ]; then
             printf 'assets = { directory = "public" }\n' >> wrangler.toml
-            echo "Assets: public/ found"
-          else
-            echo "Assets: no public/ directory"
           fi
 
           SUBDOMAIN=$(curl -s -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
@@ -147,9 +128,9 @@ jobs:
           [ -n "$SUBDOMAIN" ] || { echo "Error: No subdomain" >&2; exit 1; }
           echo "WORKER_URL=${FINAL_NAME}.${SUBDOMAIN}.workers.dev" >> $GITHUB_ENV
 
-      # ------------------------------------------------------------
-      # 6. WRANGLER.TOML – Manual (bespoke) Branch
-      # ------------------------------------------------------------
+      # ————————————————————————
+      # MANUAL (CURRENT BRANCH)
+      # ————————————————————————
       - name: Setup wrangler.toml (Manual)
         if: steps.deploy.outputs.type == 'manual'
         env:
@@ -165,9 +146,6 @@ jobs:
 
           if [ -d "public" ]; then
             printf 'assets = { directory = "public" }\n' >> wrangler.toml
-            echo "Assets: public/ found"
-          else
-            echo "Assets: no public/ directory"
           fi
 
           SUBDOMAIN=$(curl -s -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
@@ -176,9 +154,9 @@ jobs:
           [ -n "$SUBDOMAIN" ] || { echo "Error: No subdomain" >&2; exit 1; }
           echo "WORKER_URL=${FINAL_NAME}.${SUBDOMAIN}.workers.dev" >> $GITHUB_ENV
 
-      # ------------------------------------------------------------
-      # 7. COMMON STEPS (run for prod / pr / manual)
-      # ------------------------------------------------------------
+      # ————————————————————————
+      # COMMON STEPS
+      # ————————————————————————
       - name: Install dependencies
         if: steps.deploy.outputs.type != 'skip'
         run: |
@@ -201,28 +179,20 @@ jobs:
           fi)
           BINDING_NAME="${{ vars.BINDING_NAME }}"
 
-          echo "Using DB: $DB_NAME"
-
           npx wrangler whoami
           DBS=$(npx wrangler d1 list --json)
           DB_ID=$(echo "$DBS" | jq -r --arg name "$DB_NAME" '.[] | select(.name == $name) | .uuid // empty')
 
           if [ -z "$DB_ID" ]; then
-            echo "Creating D1: $DB_NAME"
             npx wrangler d1 create "$DB_NAME" || exit 1
             DB_ID=$(npx wrangler d1 list --json | jq -r --arg name "$DB_NAME" '.[] | select(.name == $name) | .uuid')
-          else
-            echo "Using existing D1: $DB_NAME"
           fi
 
-          if ! grep -q "database_id = \"$DB_ID\"" wrangler.toml 2>/dev/null; then
+          if ! grep -q "database_id = \"$DB_ID\"" wrangler.toml; then
             printf '\n[[d1_databases]]\n' >> wrangler.toml
             printf 'binding = "%s"\n' "$BINDING_NAME" >> wrangler.toml
             printf 'database_name = "%s"\n' "$DB_NAME" >> wrangler.toml
             printf 'database_id = "%s"\n' "$DB_ID" >> wrangler.toml
-            echo "D1 binding added"
-          else
-            echo "D1 binding already exists"
           fi
 
           echo "DB_NAME=$DB_NAME" >> $GITHUB_ENV
@@ -235,10 +205,8 @@ jobs:
         run: |
           shopt -s nullglob
           for file in migrations/*.sql; do
-            echo "Applying: $file"
             npx wrangler d1 execute "${{ env.DB_NAME }}" --file="$file" --remote || exit 1
           done
-          echo "Migrations complete"
 
       - name: Deploy Worker
         if: steps.deploy.outputs.type != 'skip'
