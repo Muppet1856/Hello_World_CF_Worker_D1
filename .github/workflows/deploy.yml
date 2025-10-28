@@ -248,39 +248,43 @@ jobs:
 
           URL="${{ env.PREVIEW_URL }}"
           LABEL="${{ steps.cfg.outputs.badge_label }}"
+          ENCODED_LABEL=$(jq -rn --arg x "$LABEL" '$x | @uri')
 
-          ENCODED=$(jq -rn --arg x "$LABEL" '$x|@uri')
-          BADGE="[![](${URL})](${URL})"
+          # Build the badge markdown
+          BADGE_MARKDOWN="[![](${URL})](${URL})"
 
           START="<!-- PREVIEW_BADGE_START -->"
           END="<!-- PREVIEW_BADGE_END -->"
           FILE="README.md"
 
-          # sanity checks
-          if ! grep -qF "$START" "$FILE" || ! grep -qF "$END" "$FILE"; then
-            echo "Error: $FILE missing badge markers" >&2
+          # Validate markers
+          grep -qF "$START" "$FILE" && grep -qF "$END" "$FILE" || {
+            echo "Error: Missing $START or $END in $FILE" >&2
             exit 1
-          fi
+          }
 
-          # extract current badge (if any)
-          CURRENT=$(awk "/${START}/{f=1;next} /${END}/{f=0} f" "$FILE" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          # Use perl with environment variables (safe from shell parsing)
+          perl -i -0777 -pe '
+            BEGIN {
+              $start = quotemeta($ENV{START});
+              $end = quotemeta($ENV{END});
+              $badge = $ENV{BADGE};
+            }
+            s/($start).*?($end)/$1 . $badge . $2/se;
+          ' "$FILE"
 
-          if [ "$CURRENT" = "$BADGE" ]; then
-            echo "Badge already up-to-date"
-            exit 0
-          fi
-
-          # replace
-          perl -i -0777 -pe "s|(\Q$START\E).*?(\Q$END\E)|\\1$BADGE\\2|s" "$FILE"
-
-          # verify
-          if ! grep -qF "$BADGE" "$FILE"; then
-            echo "Error: badge not inserted" >&2
+          # Verify
+          if ! grep -qF "$BADGE_MARKDOWN" "$FILE"; then
+            echo "Error: Badge not inserted!" >&2
             cat "$FILE"
             exit 1
           fi
 
-          echo "Badge updated in $FILE"
+          echo "Badge updated: $LABEL → $URL"
+        env:
+          START: <!-- PREVIEW_BADGE_START -->
+          END: <!-- PREVIEW_BADGE_END -->
+          BADGE: ![](${URL})
 
       # ------------------------------------------------------------------
       # 10. Commit badge change
