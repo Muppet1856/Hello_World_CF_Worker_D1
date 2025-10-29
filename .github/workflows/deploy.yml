@@ -156,7 +156,8 @@ jobs:
             echo "No custom domain – falling back to workers.dev"
           fi
 
-          BASE_NAME="${FINAL_WORKER_NAME}"
+          # Use base WORKER_NAME, not FINAL_WORKER_NAME
+          BASE_NAME="${{ env.WORKER_NAME }}"
 
           if [ -n "$DOMAIN_HOST" ]; then
             if [ -n "${{ steps.cfg.outputs.env_name }}" ]; then
@@ -251,7 +252,7 @@ jobs:
             });
 
       # ————————————————————————
-      # Update README Badge — SHIELD.IO (Bash only)
+      # Update README Badge — SHIELD.IO
       # ————————————————————————
       - name: Update README Preview Badge
         if: steps.cfg.outputs.type != 'skip'
@@ -294,10 +295,12 @@ jobs:
           }
 
       # ————————————————————————
-      # Commit README Update (PR-safe push)
+      # Commit README Update
       # ————————————————————————
       - name: Commit README Update
         if: steps.cfg.outputs.type != 'skip'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
@@ -315,8 +318,8 @@ jobs:
             echo "Pushing to PR branch: $BRANCH_NAME"
 
             git add README.md
-            git commit -m "docs: update preview badge for pr-${{ steps.cfg.outputs.badge_label }}"
-            git push origin HEAD:refs/heads/$BRANCH_NAME
+            git commit -m "docs: update preview badge for ${{ steps.cfg.outputs.badge_label }}"
+            git push origin HEAD:refs/heads/$BRANCH_NAME --force
           else
             git add README.md
             git commit -m "docs: update preview badge for ${{ steps.cfg.outputs.badge_label }}"
