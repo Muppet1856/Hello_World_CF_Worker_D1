@@ -139,7 +139,7 @@ function renderSuccessHtml(message, siteTitle, note, warning, requestUrl) {
         display: flex;
         align-items: center;
         justify-content: center;
-        background: radial-gradient(circle at top, #f4f4f5, #d4d4d8);
+        background: #1e3a8a;
       }
       main {
         text-align: center;
@@ -254,7 +254,7 @@ function renderErrorHtml(error, siteTitle) {
         display: flex;
         align-items: center;
         justify-content: center;
-        background: radial-gradient(circle at top, #fee2e2, #fecaca);
+        background: #1e3a8a;
       }
       main {
         text-align: center;
