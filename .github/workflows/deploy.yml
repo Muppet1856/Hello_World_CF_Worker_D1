@@ -245,7 +245,7 @@ jobs:
             });
 
       # ————————————————————————
-      # Update README Badge
+      # Update README Badge — "Preview" text on badge
       # ————————————————————————
       - name: Update README Preview Badge
         if: steps.cfg.outputs.type != 'skip'
@@ -256,8 +256,9 @@ jobs:
           LABEL="${{ steps.cfg.outputs.badge_label }}"
           ENCODED_LABEL=$(printf '%s' "$LABEL" | jq -rR '@uri')
 
-          SHIELD_URL="https://img.shields.io/badge/preview-${ENCODED_LABEL}-purple?link=${URL}"
-          BADGE="[![](${SHIELD_URL})](${URL})"
+          # Fixed "Preview" text, dynamic label in URL
+          SHIELD_URL="https://img.shields.io/badge/Preview-${ENCODED_LABEL}-purple?link=${URL}"
+          BADGE="[![Preview](${SHIELD_URL})](${URL})"
 
           START="<!-- PREVIEW_BADGE_START -->"
           END="<!-- PREVIEW_BADGE_END -->"
@@ -277,7 +278,7 @@ jobs:
 
           if ! cmp -s "$FILE" "$FILE.tmp"; then
             mv "$FILE.tmp" "$FILE"
-            echo "Badge updated: preview-${LABEL} to $URL"
+            echo "Badge updated: Preview-${LABEL} → $URL"
           else
             rm "$FILE.tmp"
             echo "Badge already up-to-date"
@@ -288,7 +289,7 @@ jobs:
           }
 
       # ————————————————————————
-      # Commit README Update (No gh, uses Git only)
+      # Commit README Update
       # ————————————————————————
       - name: Commit README Update
         if: steps.cfg.outputs.type != 'skip'
