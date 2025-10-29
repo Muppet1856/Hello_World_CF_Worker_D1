@@ -256,8 +256,8 @@ jobs:
           LABEL="${{ steps.cfg.outputs.badge_label }}"
           ENCODED_LABEL=$(printf '%s' "$LABEL" | jq -rR '@uri')
 
-          # Fixed "Preview" text, dynamic label in URL
-          SHIELD_URL="https://img.shields.io/badge?label=Preview&message=${ENCODED_LABEL}&color=purple
+          # Fixed: Missing closing quote and newline
+          SHIELD_URL="https://img.shields.io/badge?label=Preview&message=${ENCODED_LABEL}&color=purple"
           BADGE="[![Preview](${SHIELD_URL})](${URL})"
 
           START="<!-- PREVIEW_BADGE_START -->"
