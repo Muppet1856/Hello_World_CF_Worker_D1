@@ -257,8 +257,8 @@ jobs:
           ENCODED_LABEL=$(printf '%s' "$LABEL" | jq -rR '@uri')
 
           # Fixed "Preview" text, dynamic label in URL
-          SHIELD_URL="https://img.shields.io/badge/preview-${ENCODED_LABEL}-purple?link="
-          BADGE="[![Static Badge](${SHIELD_URL})](${URL})"
+          SHIELD_URL="https://img.shields.io/badge/Preview-${ENCODED_LABEL}-purple"
+          BADGE="[![Preview](${SHIELD_URL})](${URL})"
 
           START="<!-- PREVIEW_BADGE_START -->"
           END="<!-- PREVIEW_BADGE_END -->"
