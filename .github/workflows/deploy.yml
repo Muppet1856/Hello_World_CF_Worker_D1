@@ -253,12 +253,12 @@ jobs:
           set -euo pipefail
 
           URL="${{ env.PREVIEW_URL }}"
-          LABEL="${{ steps.cfg.outputs.badge_label }}"
-          ENCODED_LABEL=$(printf '%s' "$LABEL" | jq -rR '@uri')
+          LABEL="${{ steps.cfg.outputs.badge_label }}"  # e.g., "pr-82"
+          CLEAN_LABEL=$(echo "$LABEL" | tr -d '-')       # → "pr82"
 
-          # Fixed: Missing closing quote and newline
-          SHIELD_URL="https://img.shields.io/badge?label=Preview&message=${ENCODED_LABEL}&color=purple"
-          BADGE="[![Preview](${SHIELD_URL})](${URL})"
+          # NO DASHES in message
+          SHIELD_URL="https://img.shields.io/badge/preview-${CLEAN_LABEL}-purple?label=preview"
+          BADGE="[![preview](${SHIELD_URL})](${URL})"
 
           START="<!-- PREVIEW_BADGE_START -->"
           END="<!-- PREVIEW_BADGE_END -->"
@@ -278,7 +278,7 @@ jobs:
 
           if ! cmp -s "$FILE" "$FILE.tmp"; then
             mv "$FILE.tmp" "$FILE"
-            echo "Badge updated: Preview-${LABEL} → $URL"
+            echo "Badge updated: preview-${CLEAN_LABEL} → $URL"
           else
             rm "$FILE.tmp"
             echo "Badge already up-to-date"
