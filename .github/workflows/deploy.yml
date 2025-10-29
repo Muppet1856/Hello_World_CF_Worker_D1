@@ -47,18 +47,12 @@ jobs:
           [ -f "src/index.js" ] || (echo "Error: src/index.js missing" >&2; exit 1)
 
       # ————————————————————————
-      # Install Tools + GitHub CLI
+      # Install Tools
       # ————————————————————————
       - name: Install tools
         run: |
           npm install wrangler@4 --save-dev
           sudo apt update -qq && sudo apt install -y jq -qq
-
-      - name: Install GitHub CLI
-        run: |
-          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
-          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-          sudo apt update -qq && sudo apt install -y gh -qq
 
       # ————————————————————————
       # Determine Deploy Type & Badge Label
@@ -131,7 +125,7 @@ jobs:
           echo "FINAL_WORKER_NAME=$FINAL_NAME" >> $GITHUB_ENV
 
       # ————————————————————————
-      # Resolve Worker Host (custom domain to workers.dev)
+      # Resolve Worker Host
       # ————————————————————————
       - name: Resolve Worker Host
         if: steps.cfg.outputs.type != 'skip'
@@ -156,7 +150,6 @@ jobs:
             echo "No custom domain – falling back to workers.dev"
           fi
 
-          # Use base WORKER_NAME, not FINAL_WORKER_NAME
           BASE_NAME="${{ env.WORKER_NAME }}"
 
           if [ -n "$DOMAIN_HOST" ]; then
@@ -252,7 +245,7 @@ jobs:
             });
 
       # ————————————————————————
-      # Update README Badge — SHIELD.IO
+      # Update README Badge
       # ————————————————————————
       - name: Update README Preview Badge
         if: steps.cfg.outputs.type != 'skip'
@@ -295,12 +288,10 @@ jobs:
           }
 
       # ————————————————————————
-      # Commit README Update
+      # Commit README Update (No gh, uses Git only)
       # ————————————————————————
       - name: Commit README Update
         if: steps.cfg.outputs.type != 'skip'
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
@@ -313,8 +304,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            PR_NUMBER=${{ github.event.pull_request.number }}
-            BRANCH_NAME=$(gh api repos/${{ github.repository }}/pulls/$PR_NUMBER --jq '.head.ref')
+            BRANCH_NAME="${{ github.event.pull_request.head.ref }}"
             echo "Pushing to PR branch: $BRANCH_NAME"
 
             git add README.md
