@@ -121,7 +121,7 @@ jobs:
           compatibility_date = "${COMPAT_DATE}"
           EOF
 
-          # ——— Detect assets: public, dist, or build (only one allowed) ———
+          # ——— Detect assets: public → dist → build (only ONE allowed) ———
           CANDIDATES=("public" "dist" "build")
           FOUND=()
           SELECTED=""
@@ -244,29 +244,27 @@ jobs:
           done
 
       # ————————————————————————
-      # Load env vars from .cloudflare/vars.jsonc (supports comments)
+      # Load env vars from .cloudflare/vars.json
       # ————————————————————————
-      - name: Load env vars from .cloudflare/vars.jsonc
+      - name: Load env vars from .cloudflare/vars.json
         if: steps.cfg.outputs.type != 'skip'
         id: vars
         run: |
-          VARS_FILE=".cloudflare/vars.jsonc"
+          VARS_FILE=".cloudflare/vars.json"
           if [ ! -f "$VARS_FILE" ]; then
             echo "var_flags=" >> $GITHUB_OUTPUT
-            echo "No .cloudflare/vars.jsonc found – skipping env vars."
+            echo "No .cloudflare/vars.json found – skipping env vars."
             exit 0
           fi
 
-          # Strip // and /* */ comments
-          CLEAN_JSON=$(sed -E 's|//.*||g; s|/\*.*?\*/||gs' "$VARS_FILE")
-
-          # Validate JSON and build --var flags
-          if ! echo "$CLEAN_JSON" | jq empty; then
-            echo "Error: Invalid JSON in $VARS_FILE after stripping comments" >&2
+          # Validate JSON first
+          if ! jq empty "$VARS_FILE" > /dev/null 2>&1; then
+            echo "Error: Invalid JSON in $VARS_FILE" >&2
             exit 1
           fi
 
-          VAR_FLAGS=$(echo "$CLEAN_JSON" | jq -r 'to_entries | map("--var \(.key)=\(.value|tostring)") | join(" ")')
+          # Build --var flags
+          VAR_FLAGS=$(jq -r 'to_entries | map("--var \(.key)=\(.value|tostring)") | join(" ")' "$VARS_FILE")
           echo "var_flags=$VAR_FLAGS" >> $GITHUB_OUTPUT
           echo "Injected $(echo "$VAR_FLAGS" | wc -w) env vars from $VARS_FILE"
 
@@ -365,4 +363,3 @@ jobs:
             git commit -m "docs: update preview badge for ${{ steps.cfg.outputs.badge_label }}"
             git push
           fi
-</DOCUMENT>
