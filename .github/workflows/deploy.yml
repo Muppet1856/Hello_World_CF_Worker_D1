@@ -103,11 +103,26 @@ jobs:
           fi
 
       # ————————————————————————
-      # Setup wrangler.toml + Smart Assets Detection
+      # Validate Cloudflare credentials early
+      # ————————————————————————
+      - name: Validate Cloudflare credentials
+        if: steps.cfg.outputs.type != 'skip'
+        run: |
+          set -euo pipefail
+          echo "Validating Cloudflare API token..."
+          npx wrangler whoami || {
+            echo "Error: wrangler whoami failed. Check CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID." >&2
+            exit 1
+          }
+
+      # ————————————————————————
+      # Setup wrangler.toml + Smart Assets Detection (fixed Bash gotcha)
       # ————————————————————————
       - name: Setup wrangler.toml with smart assets
         if: steps.cfg.outputs.type != 'skip'
         run: |
+          set -euo pipefail
+
           if [ -n "${{ steps.cfg.outputs.env_name }}" ]; then
             FINAL_NAME="${{ steps.cfg.outputs.env_name }}-${{ env.WORKER_NAME }}"
           else
@@ -146,7 +161,9 @@ jobs:
           fi
 
           echo "FINAL_WORKER_NAME=$FINAL_NAME" >> $GITHUB_ENV
-          [ -n "$SELECTED" ] && echo "ASSETS_DIR=$SELECTED" >> $GITHUB_ENV
+          if [ -n "$SELECTED" ]; then
+            echo "ASSETS_DIR=$SELECTED" >> $GITHUB_ENV
+          fi
 
       # ————————————————————————
       # Resolve Worker Host
@@ -205,6 +222,8 @@ jobs:
       - name: Create/Get D1 + Bind
         if: steps.cfg.outputs.type != 'skip'
         run: |
+          set -euo pipefail
+
           DEPLOY_ENV="${{ steps.cfg.outputs.env_name }}"
           DB_NAME=$(if [ -z "$DEPLOY_ENV" ] || [ "$USE_PRODUCTION_DB_ON_PREVIEW" = "true" ]; then
             echo "$WORKER_NAME"
@@ -212,7 +231,6 @@ jobs:
             echo "${DEPLOY_ENV}-${WORKER_NAME}"
           fi)
 
-          npx wrangler whoami
           DB_ID=$(npx wrangler d1 list --json | jq -r --arg n "$DB_NAME" '.[] | select(.name == $n) | .uuid // empty')
 
           if [ -z "$DB_ID" ]; then
@@ -238,6 +256,8 @@ jobs:
       - name: Apply Migrations
         if: steps.cfg.outputs.type != 'skip'
         run: |
+          set -euo pipefail
+
           shopt -s nullglob
           for f in migrations/*.sql; do
             npx wrangler d1 execute "$DB_NAME" --file="$f" --remote || exit 1
@@ -250,6 +270,8 @@ jobs:
         if: steps.cfg.outputs.type != 'skip'
         id: vars
         run: |
+          set -euo pipefail
+
           VARS_FILE=".cloudflare/vars.json"
           if [ ! -f "$VARS_FILE" ]; then
             echo "var_flags=" >> $GITHUB_OUTPUT
@@ -257,13 +279,11 @@ jobs:
             exit 0
           fi
 
-          # Validate JSON first
           if ! jq empty "$VARS_FILE" > /dev/null 2>&1; then
             echo "Error: Invalid JSON in $VARS_FILE" >&2
             exit 1
           fi
 
-          # Build --var flags
           VAR_FLAGS=$(jq -r 'to_entries | map("--var \(.key)=\(.value|tostring)") | join(" ")' "$VARS_FILE")
           echo "var_flags=$VAR_FLAGS" >> $GITHUB_OUTPUT
           echo "Injected $(echo "$VAR_FLAGS" | wc -w) env vars from $VARS_FILE"
