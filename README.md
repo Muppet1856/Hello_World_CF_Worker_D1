@@ -61,6 +61,16 @@ Closing a pull request or deleting a branch runs the cleanup workflow. It mirror
 4. Apply migrations locally via `npx wrangler d1 execute <db-name> --file=migrations/0001_create_greetings.sql`.
 5. Run `npx wrangler dev` to test the Worker with the bound database.
 
+### Passing variables from `.cloudflare/vars.json`
+
+Wrangler automatically loads the key/value pairs defined in `.cloudflare/vars.json` when you run `npx wrangler dev` or deploy through CI. To add a new plain-text variable:
+
+1. Edit `.cloudflare/vars.json` and add a new property to the JSON object (for example, `{ "DEFAULT_GREETING": "Hello" }`).
+2. Reference the value from your Worker code via the `env` binding (`env.DEFAULT_GREETING`).
+3. Redeploy the Worker so the new value is published.
+
+Avoid placing secrets in `vars.json`; use `wrangler secret put` for sensitive configuration. `vars.json` is ideal for default values and other non-sensitive settings you want to share across environments.
+
 ## Troubleshooting
 
 - Ensure `WORKER_NAME` and `BINDING_NAME` are defined as repository variables; both workflows fail fast if they are missing.
