@@ -264,29 +264,51 @@ jobs:
           done
 
       # ————————————————————————
-      # Load env vars from .cloudflare/vars.json
+      # Load env vars from .cloudflare/vars.json → wrangler.toml
       # ————————————————————————
-      - name: Load env vars from .cloudflare/vars.json
+      - name: Inject .cloudflare/vars.json into wrangler.toml
         if: steps.cfg.outputs.type != 'skip'
-        id: vars
         run: |
           set -euo pipefail
 
-          VARS_FILE=".cloudflare/vars.json"
-          if [ ! -f "$VARS_FILE" ]; then
-            echo "var_flags=" >> $GITHUB_OUTPUT
-            echo "No .cloudflare/vars.json found – skipping env vars."
+          VARS_JSON=".cloudflare/vars.json"
+          TOML="wrangler.toml"
+
+          # -----------------------------------------------------------------
+          # 1. Bail out early if the file does not exist
+          # -----------------------------------------------------------------
+          if [[ ! -f "$VARS_JSON" ]]; then
+            echo "No $VARS_JSON found – nothing to inject."
             exit 0
           fi
 
-          if ! jq empty "$VARS_FILE" > /dev/null 2>&1; then
-            echo "Error: Invalid JSON in $VARS_FILE" >&2
+          # -----------------------------------------------------------------
+          # 2. Validate JSON
+          # -----------------------------------------------------------------
+          if ! jq empty "$VARS_JSON" >/dev/null 2>&1; then
+            echo "Error: $VARS_JSON contains invalid JSON" >&2
             exit 1
           fi
 
-          VAR_FLAGS=$(jq -r 'to_entries | map("--var \(.key)=\(.value|tostring)") | join(" ")' "$VARS_FILE")
-          echo "var_flags=$VAR_FLAGS" >> $GITHUB_OUTPUT
-          echo "Injected $(echo "$VAR_FLAGS" | wc -w) env vars from $VARS_FILE"
+          # -----------------------------------------------------------------
+          # 3. Remove any previous injection (keeps the file tidy on re-runs)
+          # -----------------------------------------------------------------
+          sed -i '/^# --- BEGIN INJECTED VARS ---$/,/^# --- END INJECTED VARS ---$/d' "$TOML" 2>/dev/null || true
+
+          # -----------------------------------------------------------------
+          # 4. Append the new block
+          # -----------------------------------------------------------------
+          {
+            echo "# --- BEGIN INJECTED VARS ---"
+            echo "[vars]"
+            # Quote every value and escape inner quotes
+            jq -r 'to_entries[] |
+                   "\(.key) = \"\(.value | gsub("\""; "\\\""))\""' "$VARS_JSON"
+            echo "# --- END INJECTED VARS ---"
+          } >> "$TOML"
+
+          COUNT=$(jq 'keys | length' "$VARS_JSON")
+          echo "Injected $COUNT variable(s) from $VARS_JSON into $TOML"
 
       # ————————————————————————
       # Deploy Worker
