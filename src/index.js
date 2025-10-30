@@ -102,10 +102,18 @@ async function resolveGreeting(env, locationLabel) {
   }
 }
 
-function renderSuccessHtml(message, siteTitle, note, warning, requestUrl) {
+function renderSuccessHtml(
+  message,
+  siteTitle,
+  note,
+  warning,
+  requestUrl,
+  variableOneValue,
+) {
   const safeMessage = escapeHtml(message);
   const safeNote = escapeHtml(note);
   const safeSiteTitle = escapeHtml(siteTitle);
+  const safeVariableOneValue = escapeHtml(variableOneValue ?? "(not set)");
   const safeRequestUrl =
     typeof requestUrl === "string" && requestUrl.length > 0
       ? escapeHtml(requestUrl)
@@ -211,6 +219,11 @@ function renderSuccessHtml(message, siteTitle, note, warning, requestUrl) {
         color: #111827;
         font-size: 0.95rem;
       }
+      .variable {
+        margin-top: 1.25rem;
+        font-size: 1.05rem;
+        color: #1f2937;
+      }
       .warning {
         margin-top: 1rem;
         padding: 0.75rem 1rem;
@@ -226,6 +239,7 @@ function renderSuccessHtml(message, siteTitle, note, warning, requestUrl) {
     <main>
       <h1>${safeMessage}</h1>
       <p>${safeNote}</p>
+      <p class="variable">VARIABLE_1 = <code>${safeVariableOneValue}</code></p>
       ${requestUrlHtml}
       ${warningHtml}
     </main>
@@ -318,6 +332,7 @@ export default {
         note,
         warning,
         request?.url ?? null,
+        String(env?.VARIABLE_1 ?? "(not set)"),
       );
 
       return new Response(body, {
