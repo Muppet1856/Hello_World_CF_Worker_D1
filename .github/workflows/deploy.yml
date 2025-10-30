@@ -220,7 +220,26 @@ jobs:
           done
 
       # ————————————————————————
-      # Deploy Worker
+      # NEW: Load environment variables from .cloudflare/vars.json
+      # ————————————————————————
+      - name: Load env vars from .cloudflare/vars.json
+        if: steps.cfg.outputs.type != 'skip'
+        id: vars
+        run: |
+          VARS_FILE=".cloudflare/vars.json"
+          if [ ! -f "$VARS_FILE" ]; then
+            echo "Warning: $VARS_FILE not found – no extra vars will be injected."
+            echo "var_flags=" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Build a space-separated list of --var KEY=VAL
+          VAR_FLAGS=$(jq -r 'to_entries | map("--var \(.key)=\(.value|tostring)") | join(" ")' "$VARS_FILE")
+          echo "var_flags=$VAR_FLAGS" >> $GITHUB_OUTPUT
+          echo "Found $(echo "$VAR_FLAGS" | wc -w) plain vars to inject."
+
+      # ————————————————————————
+      # Deploy Worker (inject vars via command line)
       # ————————————————————————
       - name: Deploy Worker
         if: steps.cfg.outputs.type != 'skip'
@@ -228,6 +247,8 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # Pass the dynamically built --var flags
+          command: deploy ${{ steps.vars.outputs.var_flags }}
 
       # ————————————————————————
       # Comment on PR
@@ -278,7 +299,7 @@ jobs:
 
           if ! cmp -s "$FILE" "$FILE.tmp"; then
             mv "$FILE.tmp" "$FILE"
-            echo "Badge updated: preview-${CLEAN_LABEL} → $URL"
+            echo "Badge updated: preview-${CLEAN_LABEL} to $URL"
           else
             rm "$FILE.tmp"
             echo "Badge already up-to-date"
@@ -316,3 +337,4 @@ jobs:
             git commit -m "docs: update preview badge for ${{ steps.cfg.outputs.badge_label }}"
             git push
           fi
+</DOCUMENT>
